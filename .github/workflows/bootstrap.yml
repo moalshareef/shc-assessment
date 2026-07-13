@@ -29,6 +29,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # يمنع GitHub هذا الـ Workflow من إنشاء Workflow آخر تلقائيًا
+          rm -f .github/workflows/deploy-pages.yml
+
           git add .
           git commit -m "Bootstrap platform project" || exit 0
           git push
