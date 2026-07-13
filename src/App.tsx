@@ -2,6 +2,7 @@ import { useState } from 'react'
 import shcLogo from './assets/shc-logo.png'
 
 type IconName = 'home' | 'workspace' | 'tasks' | 'approval' | 'report' | 'settings' | 'search' | 'bell' | 'menu' | 'arrow' | 'shield' | 'clock' | 'check' | 'alert' | 'users' | 'trend'
+type ViewName = 'home' | 'workspace'
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, JSX.Element> = {
@@ -25,13 +26,13 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
-const navItems: Array<{ label: string; icon: IconName; active?: boolean }> = [
-  { label: 'الرئيسية', icon: 'home', active: true },
-  { label: 'مساحات العمل', icon: 'workspace' },
-  { label: 'المهام والمتابعة', icon: 'tasks' },
-  { label: 'الاعتمادات', icon: 'approval' },
-  { label: 'التقارير', icon: 'report' },
-  { label: 'الإعدادات', icon: 'settings' },
+const navItems: Array<{ label: string; icon: IconName; view: ViewName }> = [
+  { label: 'الرئيسية', icon: 'home', view: 'home' },
+  { label: 'مساحات العمل', icon: 'workspace', view: 'workspace' },
+  { label: 'المهام والمتابعة', icon: 'tasks', view: 'home' },
+  { label: 'الاعتمادات', icon: 'approval', view: 'home' },
+  { label: 'التقارير', icon: 'report', view: 'home' },
+  { label: 'الإعدادات', icon: 'settings', view: 'home' },
 ]
 
 const stats: Array<{ label: string; value: string; icon: IconName }> = [
@@ -50,6 +51,8 @@ const recent = [
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activeView, setActiveView] = useState<ViewName>('home')
+
   return (
     <div className="app-shell" dir="rtl">
       {sidebarOpen && <button className="overlay" aria-label="إغلاق القائمة" onClick={() => setSidebarOpen(false)} />}
@@ -62,8 +65,11 @@ export default function App() {
           </div>
         </div>
         <nav aria-label="القائمة الرئيسية">
-          {navItems.map(({ label, icon, active }) => (
-            <button className={`nav-item ${active ? 'active' : ''}`} key={label}>
+          {navItems.map(({ label, icon, view }) => (
+            <button className={`nav-item ${activeView === view ? 'active' : ''}`} key={label} onClick={() => {
+              setSidebarOpen(false)
+              setActiveView(view)
+            }}>
               <Icon name={icon} /><span>{label}</span>
             </button>
           ))}
@@ -83,31 +89,62 @@ export default function App() {
         </header>
 
         <section className="page">
-          <div className="breadcrumb">الرئيسية / مساحات العمل / تقرير الكفاءة الرقابية</div>
-          <div className="page-heading">
-            <div><span className="eyebrow">مساحة العمل الحالية</span><h1>تقرير الكفاءة الرقابية</h1><p>متابعة الضوابط والملاحظات والخطط التصحيحية والاعتمادات.</p></div>
-            <button className="primary-button">عرض مساحة العمل <Icon name="arrow" size={19}/></button>
-          </div>
+          {activeView === 'workspace' ? (
+            <div className="workspace-page">
+              <div className="breadcrumb">الرئيسية / مساحات العمل</div>
+              <div className="page-heading">
+                <div><span className="eyebrow">مساحات العمل</span><h1>مساحات العمل</h1><p>اختر مساحة العمل المناسبة لمتابعة الأنشطة والتقارير.</p></div>
+              </div>
 
-          <div className="stats-grid">
-            {stats.map(({ label, value, icon }) => (
-              <article className="stat-card" key={label}><div className="stat-icon"><Icon name={icon} size={22}/></div><div><span>{label}</span><strong>{value}</strong></div></article>
-            ))}
-          </div>
+              <div className="workspace-card-grid">
+                <button className="workspace-card workspace-card-primary" onClick={() => setActiveView('home')}>
+                  <div className="workspace-card-top">
+                    <span className="workspace-badge">متاح</span>
+                    <Icon name="report" size={24} />
+                  </div>
+                  <h2>تقرير الكفاءة الرقابية</h2>
+                  <p>العودة إلى الواجهة الحالية لعرض التقرير والبيانات المتاحة.</p>
+                </button>
 
-          <div className="dashboard-grid">
-            <section className="panel">
-              <div className="panel-header"><div><h2>آخر الملاحظات</h2><p>عرض مبسط لحالة التنفيذ الحالية</p></div><button className="text-button">عرض الكل</button></div>
-              <div className="table-wrap"><table><thead><tr><th>الملاحظة</th><th>الإدارة</th><th>الحالة</th><th>الإنجاز</th></tr></thead><tbody>
-                {recent.map((item) => <tr key={item.title}><td><strong>{item.title}</strong></td><td>{item.dept}</td><td><span className={`status ${item.status === 'متأخرة' ? 'danger' : item.status === 'لم تبدأ' ? 'muted' : ''}`}>{item.status}</span></td><td><div className="progress-cell"><div className="progress-track"><span style={{ width: `${item.progress}%` }} /></div><span>{item.progress}%</span></div></td></tr>)}
-              </tbody></table></div>
-            </section>
+                <div className="workspace-card workspace-card-disabled" aria-disabled="true">
+                  <div className="workspace-card-top">
+                    <span className="workspace-badge disabled">قيد الإعداد</span>
+                    <Icon name="settings" size={24} />
+                  </div>
+                  <h2>ركائز كفاءة الإنفاق</h2>
+                  <p>سيتم إضافة هذا المسار قريبًا ضمن مساحات العمل.</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="breadcrumb">الرئيسية / مساحات العمل / تقرير الكفاءة الرقابية</div>
+              <div className="page-heading">
+                <div><span className="eyebrow">مساحة العمل الحالية</span><h1>تقرير الكفاءة الرقابية</h1><p>متابعة الضوابط والملاحظات والخطط التصحيحية والاعتمادات.</p></div>
+                <button className="primary-button" onClick={() => setActiveView('workspace')}>عرض مساحة العمل <Icon name="arrow" size={19}/></button>
+              </div>
 
-            <aside className="side-stack">
-              <section className="panel compact"><div className="panel-header"><div><h2>ملخص الأداء</h2><p>حتى اليوم</p></div><Icon name="trend" size={22}/></div><div className="performance-box"><strong>56%</strong><span>نسبة الإنجاز الكلية</span></div></section>
-              <section className="panel compact"><div className="panel-header"><div><h2>فريق العمل</h2><p>الأعضاء النشطون</p></div><Icon name="users" size={22}/></div><div className="team-row"><div className="avatars"><span>م</span><span>ع</span><span>س</span><span>ن</span></div><strong>12 عضوًا</strong></div></section>
-            </aside>
-          </div>
+              <div className="stats-grid">
+                {stats.map(({ label, value, icon }) => (
+                  <article className="stat-card" key={label}><div className="stat-icon"><Icon name={icon} size={22}/></div><div><span>{label}</span><strong>{value}</strong></div></article>
+                ))}
+              </div>
+
+              <div className="dashboard-grid">
+                <section className="panel">
+                  <div className="panel-header"><div><h2>آخر الملاحظات</h2><p>عرض مبسط لحالة التنفيذ الحالية</p></div><button className="text-button">عرض الكل</button></div>
+                  <div className="table-wrap"><table><thead><tr><th>الملاحظة</th><th>الإدارة</th><th>الحالة</th><th>الإنجاز</th></tr></thead><tbody>
+                    {recent.map((item) => <tr key={item.title}><td><strong>{item.title}</strong></td><td>{item.dept}</td><td><span className={`status ${item.status === 'متأخرة' ? 'danger' : item.status === 'لم تبدأ' ? 'muted' : ''}`}>{item.status}</span></td><td><div className="progress-cell"><div className="progress-track"><span style={{ width: `${item.progress}%` }} /></div><span>{item.progress}%</span></div></td></tr>)}
+                  </tbody></table></div>
+                </section>
+
+                <aside className="side-stack">
+                  <section className="panel compact"><div className="panel-header"><div><h2>ملخص الأداء</h2><p>حتى اليوم</p></div><Icon name="trend" size={22}/></div><div className="performance-box"><strong>56%</strong><span>نسبة الإنجاز الكلية</span></div></section>
+                  <section className="panel compact"><div className="panel-header"><div><h2>فريق العمل</h2><p>الأعضاء النشطون</p></div><Icon name="users" size={22}/></div><div className="team-row"><div className="avatars"><span>م</span><span>ع</span><span>س</span><span>ن</span></div><strong>12 عضوًا</strong></div></section>
+                </aside>
+              </div>
+            </>
+          )}
         </section>
       </main>
     </div>
