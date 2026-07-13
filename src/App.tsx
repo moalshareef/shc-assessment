@@ -1,23 +1,10 @@
 import { useState } from 'react'
 import shcLogo from './assets/shc-logo.png'
+import { temporaryPillars } from './data/spendingEfficiency'
+import type { SpendingPillar } from './types/spendingEfficiency'
 
 type IconName = 'home' | 'workspace' | 'tasks' | 'approval' | 'report' | 'settings' | 'search' | 'bell' | 'menu' | 'arrow' | 'shield' | 'clock' | 'check' | 'alert' | 'users' | 'trend'
 type ViewName = 'home' | 'workspace' | 'pillars' | 'pillarDetail'
-
-type PillarStatus = 'مكتمل' | 'قيد التنفيذ' | 'متأخر'
-
-type Pillar = {
-  id: string
-  name: string
-  progress: number
-  requirementCount: number
-  status: PillarStatus
-  department: string
-  owner: string
-  dueDate: string
-  lastUpdate: string
-  requirements: string[]
-}
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, JSX.Element> = {
@@ -64,19 +51,9 @@ const recent = [
   { title: 'المطابقات الشهرية', dept: 'الإدارة المالية', status: 'لم تبدأ', progress: 0 },
 ]
 
-// بيانات مؤقتة لحين اعتماد بيانات الركائز الرسمية.
-const temporaryPillars: Pillar[] = [
-  { id: 'pillar-1', name: 'الركيزة الأولى', progress: 72, requirementCount: 12, status: 'قيد التنفيذ', department: 'إدارة التخطيط', owner: 'سارة العتيبي', dueDate: '2026-08-15', lastUpdate: '2026-07-10', requirements: ['توحيد تعريفات المتطلبات', 'تحديث المخطط التنفيذي', 'مراجعة أولية للملفات'] },
-  { id: 'pillar-2', name: 'الركيزة الثانية', progress: 45, requirementCount: 9, status: 'قيد التنفيذ', department: 'إدارة الجودة', owner: 'عبدالله القحطاني', dueDate: '2026-08-20', lastUpdate: '2026-07-08', requirements: ['تسليم مسودة المراجعة', 'تفعيل المتابعة المرحلية', 'تجهيز قاعدة البيانات'] },
-  { id: 'pillar-3', name: 'الركيزة الثالثة', progress: 88, requirementCount: 11, status: 'مكتمل', department: 'الإدارة المالية', owner: 'نورة السهلي', dueDate: '2026-07-25', lastUpdate: '2026-07-11', requirements: ['تدقيق بنود الإحالة', 'مراجعة التكاليف', 'إغلاق المتطلبات النهائية'] },
-  { id: 'pillar-4', name: 'الركيزة الرابعة', progress: 32, requirementCount: 8, status: 'متأخر', department: 'إدارة العمليات', owner: 'محمد المطيري', dueDate: '2026-08-05', lastUpdate: '2026-07-05', requirements: ['تحديث خطة التنفيذ', 'مطابقة المعايير', 'تسليم الملاحظات'] },
-  { id: 'pillar-5', name: 'الركيزة الخامسة', progress: 60, requirementCount: 10, status: 'قيد التنفيذ', department: 'إدارة الرقابة', owner: 'ليلى الشهري', dueDate: '2026-08-18', lastUpdate: '2026-07-09', requirements: ['تأهيل الفرق', 'تجهيز التقارير', 'إدخال الملاحظات'] },
-  { id: 'pillar-6', name: 'الركيزة السادسة', progress: 91, requirementCount: 7, status: 'مكتمل', department: 'إدارة الشؤون الإدارية', owner: 'فهد الحربي', dueDate: '2026-07-22', lastUpdate: '2026-07-12', requirements: ['الالتزام بالمعايير', 'تدقيق الطلبات', 'إكمال سجل المتابعة'] },
-]
-
 const pillarSummary = {
   count: temporaryPillars.length,
-  totalRequirements: temporaryPillars.reduce((sum, pillar) => sum + pillar.requirementCount, 0),
+  totalRequirements: temporaryPillars.reduce((sum, pillar) => sum + pillar.totalRequirements, 0),
   completed: temporaryPillars.filter((pillar) => pillar.status === 'مكتمل').length,
   inProgress: temporaryPillars.filter((pillar) => pillar.status === 'قيد التنفيذ').length,
   delayed: temporaryPillars.filter((pillar) => pillar.status === 'متأخر').length,
@@ -193,7 +170,7 @@ export default function App() {
                     <div className="pillar-card-top">
                       <div>
                         <h2>{pillar.name}</h2>
-                        <p>{pillar.department}</p>
+                        <p>{pillar.ownerDepartment}</p>
                       </div>
                       <span className={`status ${pillar.status === 'متأخر' ? 'danger' : pillar.status === 'مكتمل' ? 'success' : ''}`}>{pillar.status}</span>
                     </div>
@@ -202,8 +179,8 @@ export default function App() {
                       <strong>{pillar.progress}%</strong>
                     </div>
                     <div className="pillar-meta">
-                      <span>متطلبات: {pillar.requirementCount}</span>
-                      <span>المالك: {pillar.owner}</span>
+                      <span>متطلبات: {pillar.totalRequirements}</span>
+                      <span>المالك: {pillar.ownerName}</span>
                     </div>
                     <button className="secondary-button full-width" onClick={() => handleOpenPillarDetails(pillar.id)}>عرض التفاصيل</button>
                   </article>
@@ -228,8 +205,8 @@ export default function App() {
                   </article>
                   <article className="detail-card">
                     <h2>تفاصيل التنفيذ</h2>
-                    <div className="detail-item"><span>الإدارة المسؤولة</span><strong>{selectedPillar.department}</strong></div>
-                    <div className="detail-item"><span>المسؤول</span><strong>{selectedPillar.owner}</strong></div>
+                    <div className="detail-item"><span>الإدارة المسؤولة</span><strong>{selectedPillar.ownerDepartment}</strong></div>
+                    <div className="detail-item"><span>المسؤول</span><strong>{selectedPillar.ownerName}</strong></div>
                     <div className="detail-item"><span>تاريخ الاستحقاق</span><strong>{selectedPillar.dueDate}</strong></div>
                   </article>
                 </div>
@@ -237,7 +214,7 @@ export default function App() {
                 <div className="detail-section">
                   <h2>متطلبات تجريبية</h2>
                   <ul className="detail-list">
-                    {selectedPillar.requirements.map((item) => <li key={item}>{item}</li>)}
+                    {selectedPillar.requirements.map((item) => <li key={item.id}>{item.title}</li>)}
                   </ul>
                 </div>
               </section>
