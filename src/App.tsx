@@ -2,7 +2,22 @@ import { useState } from 'react'
 import shcLogo from './assets/shc-logo.png'
 
 type IconName = 'home' | 'workspace' | 'tasks' | 'approval' | 'report' | 'settings' | 'search' | 'bell' | 'menu' | 'arrow' | 'shield' | 'clock' | 'check' | 'alert' | 'users' | 'trend'
-type ViewName = 'home' | 'workspace'
+type ViewName = 'home' | 'workspace' | 'pillars' | 'pillarDetail'
+
+type PillarStatus = 'مكتمل' | 'قيد التنفيذ' | 'متأخر'
+
+type Pillar = {
+  id: string
+  name: string
+  progress: number
+  requirementCount: number
+  status: PillarStatus
+  department: string
+  owner: string
+  dueDate: string
+  lastUpdate: string
+  requirements: string[]
+}
 
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
   const paths: Record<IconName, JSX.Element> = {
@@ -49,9 +64,48 @@ const recent = [
   { title: 'المطابقات الشهرية', dept: 'الإدارة المالية', status: 'لم تبدأ', progress: 0 },
 ]
 
+// بيانات مؤقتة لحين اعتماد بيانات الركائز الرسمية.
+const temporaryPillars: Pillar[] = [
+  { id: 'pillar-1', name: 'الركيزة الأولى', progress: 72, requirementCount: 12, status: 'قيد التنفيذ', department: 'إدارة التخطيط', owner: 'سارة العتيبي', dueDate: '2026-08-15', lastUpdate: '2026-07-10', requirements: ['توحيد تعريفات المتطلبات', 'تحديث المخطط التنفيذي', 'مراجعة أولية للملفات'] },
+  { id: 'pillar-2', name: 'الركيزة الثانية', progress: 45, requirementCount: 9, status: 'قيد التنفيذ', department: 'إدارة الجودة', owner: 'عبدالله القحطاني', dueDate: '2026-08-20', lastUpdate: '2026-07-08', requirements: ['تسليم مسودة المراجعة', 'تفعيل المتابعة المرحلية', 'تجهيز قاعدة البيانات'] },
+  { id: 'pillar-3', name: 'الركيزة الثالثة', progress: 88, requirementCount: 11, status: 'مكتمل', department: 'الإدارة المالية', owner: 'نورة السهلي', dueDate: '2026-07-25', lastUpdate: '2026-07-11', requirements: ['تدقيق بنود الإحالة', 'مراجعة التكاليف', 'إغلاق المتطلبات النهائية'] },
+  { id: 'pillar-4', name: 'الركيزة الرابعة', progress: 32, requirementCount: 8, status: 'متأخر', department: 'إدارة العمليات', owner: 'محمد المطيري', dueDate: '2026-08-05', lastUpdate: '2026-07-05', requirements: ['تحديث خطة التنفيذ', 'مطابقة المعايير', 'تسليم الملاحظات'] },
+  { id: 'pillar-5', name: 'الركيزة الخامسة', progress: 60, requirementCount: 10, status: 'قيد التنفيذ', department: 'إدارة الرقابة', owner: 'ليلى الشهري', dueDate: '2026-08-18', lastUpdate: '2026-07-09', requirements: ['تأهيل الفرق', 'تجهيز التقارير', 'إدخال الملاحظات'] },
+  { id: 'pillar-6', name: 'الركيزة السادسة', progress: 91, requirementCount: 7, status: 'مكتمل', department: 'إدارة الشؤون الإدارية', owner: 'فهد الحربي', dueDate: '2026-07-22', lastUpdate: '2026-07-12', requirements: ['الالتزام بالمعايير', 'تدقيق الطلبات', 'إكمال سجل المتابعة'] },
+]
+
+const pillarSummary = {
+  count: temporaryPillars.length,
+  totalRequirements: temporaryPillars.reduce((sum, pillar) => sum + pillar.requirementCount, 0),
+  completed: temporaryPillars.filter((pillar) => pillar.status === 'مكتمل').length,
+  inProgress: temporaryPillars.filter((pillar) => pillar.status === 'قيد التنفيذ').length,
+  delayed: temporaryPillars.filter((pillar) => pillar.status === 'متأخر').length,
+}
+
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeView, setActiveView] = useState<ViewName>('home')
+  const [selectedPillarId, setSelectedPillarId] = useState<string | null>(null)
+
+  const selectedPillar = temporaryPillars.find((pillar) => pillar.id === selectedPillarId) ?? null
+  const isWorkspaceView = activeView === 'workspace' || activeView === 'pillars' || activeView === 'pillarDetail'
+
+  const handleOpenWorkspace = () => {
+    setSidebarOpen(false)
+    setActiveView('workspace')
+    setSelectedPillarId(null)
+  }
+
+  const handleOpenPillars = () => {
+    setSidebarOpen(false)
+    setActiveView('pillars')
+    setSelectedPillarId(null)
+  }
+
+  const handleOpenPillarDetails = (pillarId: string) => {
+    setSelectedPillarId(pillarId)
+    setActiveView('pillarDetail')
+  }
 
   return (
     <div className="app-shell" dir="rtl">
@@ -66,9 +120,10 @@ export default function App() {
         </div>
         <nav aria-label="القائمة الرئيسية">
           {navItems.map(({ label, icon, view }) => (
-            <button className={`nav-item ${activeView === view ? 'active' : ''}`} key={label} onClick={() => {
+            <button className={`nav-item ${view === 'workspace' ? (isWorkspaceView ? 'active' : '') : activeView === view ? 'active' : ''}`} key={label} onClick={() => {
               setSidebarOpen(false)
               setActiveView(view)
+              setSelectedPillarId(null)
             }}>
               <Icon name={icon} /><span>{label}</span>
             </button>
@@ -106,22 +161,93 @@ export default function App() {
                   <p>العودة إلى الواجهة الحالية لعرض التقرير والبيانات المتاحة.</p>
                 </button>
 
-                <div className="workspace-card workspace-card-disabled" aria-disabled="true">
+                <button className="workspace-card workspace-card-primary" onClick={handleOpenPillars}>
                   <div className="workspace-card-top">
-                    <span className="workspace-badge disabled">قيد الإعداد</span>
+                    <span className="workspace-badge">متاح</span>
                     <Icon name="settings" size={24} />
                   </div>
                   <h2>ركائز كفاءة الإنفاق</h2>
-                  <p>سيتم إضافة هذا المسار قريبًا ضمن مساحات العمل.</p>
-                </div>
+                  <p>عرض الركائز المؤقتة والمتطلبات التجريبية الخاصة بهذا المسار.</p>
+                </button>
               </div>
+            </div>
+          ) : activeView === 'pillars' ? (
+            <div className="workspace-page">
+              <div className="breadcrumb">الرئيسية / مساحات العمل / ركائز كفاءة الإنفاق</div>
+              <div className="page-heading">
+                <div><span className="eyebrow">ركائز كفاءة الإنفاق</span><h1>ركائز كفاءة الإنفاق</h1><p>عرض تجريبي للركائز والمهام المؤقتة لحين اعتماد البيانات الرسمية.</p></div>
+                <button className="secondary-button" onClick={handleOpenWorkspace}>العودة إلى مساحات العمل <Icon name="arrow" size={19}/></button>
+              </div>
+
+              <div className="workspace-summary-grid">
+                <article className="summary-card"><span>عدد الركائز</span><strong>{pillarSummary.count}</strong></article>
+                <article className="summary-card"><span>إجمالي المتطلبات</span><strong>{pillarSummary.totalRequirements}</strong></article>
+                <article className="summary-card"><span>المكتمل</span><strong>{pillarSummary.completed}</strong></article>
+                <article className="summary-card"><span>قيد التنفيذ</span><strong>{pillarSummary.inProgress}</strong></article>
+                <article className="summary-card"><span>المتأخر</span><strong>{pillarSummary.delayed}</strong></article>
+              </div>
+
+              <div className="pillar-grid">
+                {temporaryPillars.map((pillar) => (
+                  <article className="pillar-card" key={pillar.id}>
+                    <div className="pillar-card-top">
+                      <div>
+                        <h2>{pillar.name}</h2>
+                        <p>{pillar.department}</p>
+                      </div>
+                      <span className={`status ${pillar.status === 'متأخر' ? 'danger' : pillar.status === 'مكتمل' ? 'success' : ''}`}>{pillar.status}</span>
+                    </div>
+                    <div className="pillar-progress-row">
+                      <div className="progress-track"><span style={{ width: `${pillar.progress}%` }} /></div>
+                      <strong>{pillar.progress}%</strong>
+                    </div>
+                    <div className="pillar-meta">
+                      <span>متطلبات: {pillar.requirementCount}</span>
+                      <span>المالك: {pillar.owner}</span>
+                    </div>
+                    <button className="secondary-button full-width" onClick={() => handleOpenPillarDetails(pillar.id)}>عرض التفاصيل</button>
+                  </article>
+                ))}
+              </div>
+            </div>
+          ) : activeView === 'pillarDetail' && selectedPillar ? (
+            <div className="workspace-page">
+              <div className="breadcrumb">الرئيسية / مساحات العمل / ركائز كفاءة الإنفاق / {selectedPillar.name}</div>
+              <div className="page-heading">
+                <div><span className="eyebrow">تفاصيل الركيزة</span><h1>{selectedPillar.name}</h1><p>عرض تجريبي لمحتوى الركيزة قبل اعتماد البيانات الرسمية.</p></div>
+                <button className="secondary-button" onClick={() => setActiveView('pillars')}>العودة إلى ركائز كفاءة الإنفاق <Icon name="arrow" size={19}/></button>
+              </div>
+
+              <section className="detail-panel">
+                <div className="detail-grid">
+                  <article className="detail-card">
+                    <h2>معلومات الركيزة</h2>
+                    <div className="detail-item"><span>الحالة</span><strong>{selectedPillar.status}</strong></div>
+                    <div className="detail-item"><span>نسبة الإنجاز</span><strong>{selectedPillar.progress}%</strong></div>
+                    <div className="detail-item"><span>آخر تحديث</span><strong>{selectedPillar.lastUpdate}</strong></div>
+                  </article>
+                  <article className="detail-card">
+                    <h2>تفاصيل التنفيذ</h2>
+                    <div className="detail-item"><span>الإدارة المسؤولة</span><strong>{selectedPillar.department}</strong></div>
+                    <div className="detail-item"><span>المسؤول</span><strong>{selectedPillar.owner}</strong></div>
+                    <div className="detail-item"><span>تاريخ الاستحقاق</span><strong>{selectedPillar.dueDate}</strong></div>
+                  </article>
+                </div>
+
+                <div className="detail-section">
+                  <h2>متطلبات تجريبية</h2>
+                  <ul className="detail-list">
+                    {selectedPillar.requirements.map((item) => <li key={item}>{item}</li>)}
+                  </ul>
+                </div>
+              </section>
             </div>
           ) : (
             <>
               <div className="breadcrumb">الرئيسية / مساحات العمل / تقرير الكفاءة الرقابية</div>
               <div className="page-heading">
                 <div><span className="eyebrow">مساحة العمل الحالية</span><h1>تقرير الكفاءة الرقابية</h1><p>متابعة الضوابط والملاحظات والخطط التصحيحية والاعتمادات.</p></div>
-                <button className="primary-button" onClick={() => setActiveView('workspace')}>عرض مساحة العمل <Icon name="arrow" size={19}/></button>
+                <button className="primary-button" onClick={handleOpenWorkspace}>عرض مساحة العمل <Icon name="arrow" size={19}/></button>
               </div>
 
               <div className="stats-grid">
