@@ -5,6 +5,7 @@ import type {
   FinancialControlFinding,
   FinancialControlFindingStatus,
   FinancialControlMembership,
+  FinancialControlStatusHistory,
   FinancialControlSummary,
   FinancialControlWorkspace,
 } from '../types/financialControl'
@@ -95,29 +96,62 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     )
   }
 
-  const [findingsResult, actionsResult] = await Promise.all([
+  const [findingsResult, actionsResult, historyResult] = await Promise.all([
     supabase
       .from('financial_control_findings')
-      .select('id, workspace_id, reference_code, title, official_owner_label, workflow_status, progress_percent, current_due_date, last_activity_at, updated_at')
+      .select('id, workspace_id, sequence_no, case_code, reference_code, title, assessment_rating, assessment_rating_label, official_owner_label, workflow_status, progress_percent, official_due_date, current_due_date, official_finding_text, control_reference, control_summary, last_activity_at, updated_at')
       .eq('workspace_id', workspace.id)
       .is('archived_at', null)
-      .order('updated_at', { ascending: false }),
+      .order('sequence_no', { ascending: true }),
     supabase
       .from('corrective_actions')
-      .select('id, workspace_id, finding_id, action_no, workflow_status, progress_percent, current_due_date, updated_at')
+      .select('id, workspace_id, finding_id, action_no, official_action_text, execution_details, responsible_department_id, responsible_user_id, workflow_status, progress_percent, official_due_date, current_due_date, updated_at')
       .eq('workspace_id', workspace.id)
-      .order('updated_at', { ascending: false }),
+      .order('action_no', { ascending: true }),
+    supabase
+      .from('finding_status_history')
+      .select('id, workspace_id, finding_id, from_status, to_status, transition_code, reason, progress_before, progress_after, due_date_before, due_date_after, changed_by, changed_at')
+      .eq('workspace_id', workspace.id)
+      .order('changed_at', { ascending: false }),
   ])
 
-  if (findingsResult.error || actionsResult.error) {
+  if (findingsResult.error || actionsResult.error || historyResult.error) {
     throw new FinancialControlServiceError(
       'query',
       'تعذر قراءة بيانات الرقابة المالية من Supabase. تحقق من الاتصال والصلاحيات.',
     )
   }
 
-  const findings = (findingsResult.data ?? []) as FinancialControlFinding[]
   const correctiveActions = (actionsResult.data ?? []) as FinancialControlCorrectiveAction[]
+  const statusHistory = (historyResult.data ?? []) as FinancialControlStatusHistory[]
+  const actionsByFinding = new Map<string, FinancialControlCorrectiveAction[]>()
+  const historyByFinding = new Map<string, FinancialControlStatusHistory[]>()
+
+  correctiveActions.forEach((action) => {
+    const current = actionsByFinding.get(action.finding_id) ?? []
+    current.push(action)
+    actionsByFinding.set(action.finding_id, current)
+  })
+
+  statusHistory.forEach((historyItem) => {
+    const current = historyByFinding.get(historyItem.finding_id) ?? []
+    current.push(historyItem)
+    historyByFinding.set(historyItem.finding_id, current)
+  })
+
+  const findings = ((findingsResult.data ?? []) as Omit<
+    FinancialControlFinding,
+    'official_recommendation' | 'corrective_actions' | 'status_history'
+  >[]).map((finding) => {
+    const findingActions = actionsByFinding.get(finding.id) ?? []
+
+    return {
+      ...finding,
+      official_recommendation: findingActions[0]?.official_action_text ?? null,
+      corrective_actions: findingActions,
+      status_history: historyByFinding.get(finding.id) ?? [],
+    }
+  })
 
   return {
     workspace,
