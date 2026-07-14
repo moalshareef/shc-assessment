@@ -61,6 +61,7 @@ export interface FinancialControlFinding {
   control_summary: string
   last_activity_at: string | null
   updated_at: string
+  lock_version: number
   official_recommendation: string | null
   corrective_actions: FinancialControlCorrectiveAction[]
   status_history: FinancialControlStatusHistory[]
@@ -80,6 +81,29 @@ export interface FinancialControlCorrectiveAction {
   official_due_date: string
   current_due_date: string
   updated_at: string
+  lock_version: number
+}
+
+export interface UpdateCorrectiveActionProgressInput {
+  correctiveActionId: string
+  progressPercent: number
+  executionDetails: string
+  expectedLockVersion: number
+}
+
+export interface TransitionFindingInput {
+  findingId: string
+  toStatus: FinancialControlFindingStatus
+  reason: string | null
+  expectedLockVersion: number
+}
+
+export interface TransitionCorrectiveActionInput {
+  correctiveActionId: string
+  fromStatus: CorrectiveActionStatus
+  toStatus: CorrectiveActionStatus
+  reason: string | null
+  expectedLockVersion: number
 }
 
 export interface FinancialControlStatusHistory {
@@ -114,7 +138,15 @@ export interface FinancialControlDashboardData {
   summary: FinancialControlSummary
 }
 
-export type FinancialControlErrorCode = 'authentication' | 'workspace' | 'membership' | 'query'
+export type FinancialControlErrorCode =
+  | 'authentication'
+  | 'workspace'
+  | 'membership'
+  | 'query'
+  | 'validation'
+  | 'permission'
+  | 'conflict'
+  | 'mutation'
 
 export class FinancialControlServiceError extends Error {
   constructor(public readonly code: FinancialControlErrorCode, message: string) {
