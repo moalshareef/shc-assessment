@@ -10,18 +10,22 @@ import type {
   FinancialControlFinding,
   FinancialControlRole,
 } from '../../types/financialControl'
-import { formatArabicDateTime } from './dateFormat'
+import { formatArabicDate } from './dateFormat'
 
-type UpdateKind = 'sent_email' | 'official_reply' | 'progress' | 'follow_up' | 'manager_review'
+export type FindingUpdateKind = 'sent_email' | 'official_reply' | 'progress' | 'follow_up' | 'manager_review'
 
 interface FindingUpdatePanelProps {
   finding: FinancialControlFinding
   roles: FinancialControlRole[]
   busy: boolean
+  initialKind?: FindingUpdateKind
+  triggerLabel?: string
+  triggerClassName?: 'primary-button' | 'secondary-button'
+  showKindSelector?: boolean
   onRun: (key: string, successMessage: string, operation: () => Promise<void>) => Promise<boolean>
 }
 
-const updateKinds: Array<{ value: UpdateKind; label: string }> = [
+const updateKinds: Array<{ value: FindingUpdateKind; label: string }> = [
   { value: 'sent_email', label: 'إرسال بريد رسمي' },
   { value: 'official_reply', label: 'تسجيل رد رسمي' },
   { value: 'progress', label: 'تحديث نسبة الإنجاز' },
@@ -48,9 +52,18 @@ function eventTimestamp(date: string) {
   return `${date}T12:00:00+03:00`
 }
 
-export function FindingUpdatePanel({ finding, roles, busy, onRun }: FindingUpdatePanelProps) {
+export function FindingUpdatePanel({
+  finding,
+  roles,
+  busy,
+  initialKind = 'sent_email',
+  triggerLabel = 'إضافة تحديث',
+  triggerClassName = 'primary-button',
+  showKindSelector = true,
+  onRun,
+}: FindingUpdatePanelProps) {
   const [open, setOpen] = useState(false)
-  const [kind, setKind] = useState<UpdateKind>('sent_email')
+  const [kind, setKind] = useState<FindingUpdateKind>(initialKind)
   const [date, setDate] = useState(today())
   const [party, setParty] = useState('')
   const [subject, setSubject] = useState('')
@@ -78,6 +91,12 @@ export function FindingUpdatePanel({ finding, roles, busy, onRun }: FindingUpdat
     setText('')
     setObstacles('')
     setDate(today())
+    setKind(initialKind)
+  }
+
+  const openPanel = () => {
+    setKind(initialKind)
+    setOpen(true)
   }
 
   const submit = async () => {
@@ -149,8 +168,8 @@ export function FindingUpdatePanel({ finding, roles, busy, onRun }: FindingUpdat
 
   if (!open) {
     return (
-      <button className="primary-button" type="button" onClick={() => setOpen(true)} data-testid="add-finding-update">
-        إضافة تحديث
+      <button className={triggerClassName} type="button" onClick={openPanel} data-testid="add-finding-update">
+        {triggerLabel}
       </button>
     )
   }
@@ -185,18 +204,22 @@ export function FindingUpdatePanel({ finding, roles, busy, onRun }: FindingUpdat
           <button className="secondary-button" type="button" onClick={resetAndClose} disabled={busy}>إلغاء</button>
         </div>
 
-        <label>
-          <span>نوع التحديث</span>
-          <select value={kind} onChange={(event) => setKind(event.target.value as UpdateKind)} style={fieldStyle}>
-            {updateKinds.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
-          </select>
-        </label>
+        {showKindSelector ? (
+          <label>
+            <span>نوع التحديث</span>
+            <select value={kind} onChange={(event) => setKind(event.target.value as FindingUpdateKind)} style={fieldStyle}>
+              {updateKinds.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
+            </select>
+          </label>
+        ) : null}
 
         {(kind === 'sent_email' || kind === 'official_reply' || kind === 'follow_up') ? (
           <label>
-            <span>{kind === 'official_reply' ? 'تاريخ الرد' : kind === 'sent_email' ? 'تاريخ الإرسال' : 'التاريخ'}</span>
+            <span>
+              {kind === 'official_reply' ? 'تاريخ الرد' : kind === 'sent_email' ? 'تاريخ الإرسال' : 'التاريخ'}
+              {' — '}{formatArabicDate(date)}
+            </span>
             <input type="date" value={date} onChange={(event) => setDate(event.target.value)} style={fieldStyle}/>
-            <small style={{ display: 'block', color: 'var(--muted)', marginTop: 6 }}>{formatArabicDateTime(eventTimestamp(date))}</small>
           </label>
         ) : null}
 
