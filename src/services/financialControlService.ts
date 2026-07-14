@@ -1,14 +1,20 @@
 import { supabase } from '../lib/supabase'
 import type {
   CorrectiveActionStatus,
+  AddFollowUpCommentInput,
+  FinancialControlComment,
   FinancialControlCorrectiveAction,
   FinancialControlDashboardData,
   FinancialControlFinding,
   FinancialControlFindingStatus,
   FinancialControlMembership,
+  FinancialControlMessage,
+  FinancialControlProfile,
   FinancialControlStatusHistory,
   FinancialControlSummary,
   FinancialControlWorkspace,
+  RecordOfficialReplyInput,
+  RecordSentEmailInput,
   TransitionCorrectiveActionInput,
   TransitionFindingInput,
   UpdateCorrectiveActionProgressInput,
@@ -131,7 +137,7 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     )
   }
 
-  const [findingsResult, actionsResult, historyResult] = await Promise.all([
+  const [findingsResult, actionsResult, historyResult, messagesResult, commentsResult, profilesResult] = await Promise.all([
     supabase
       .from('financial_control_findings')
       .select('id, workspace_id, sequence_no, case_code, reference_code, title, assessment_rating, assessment_rating_label, official_owner_label, workflow_status, progress_percent, official_due_date, current_due_date, official_finding_text, control_reference, control_summary, last_activity_at, updated_at, lock_version')
@@ -140,7 +146,7 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
       .order('sequence_no', { ascending: true }),
     supabase
       .from('corrective_actions')
-      .select('id, workspace_id, finding_id, action_no, official_action_text, execution_details, responsible_department_id, responsible_user_id, workflow_status, progress_percent, official_due_date, current_due_date, updated_at, lock_version')
+      .select('id, workspace_id, finding_id, action_no, official_action_text, execution_details, responsible_department_id, responsible_user_id, workflow_status, progress_percent, official_due_date, current_due_date, updated_at, updated_by, lock_version')
       .eq('workspace_id', workspace.id)
       .order('action_no', { ascending: true }),
     supabase
@@ -148,9 +154,30 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
       .select('id, workspace_id, finding_id, from_status, to_status, transition_code, reason, progress_before, progress_after, due_date_before, due_date_after, changed_by, changed_at')
       .eq('workspace_id', workspace.id)
       .order('changed_at', { ascending: false }),
+    supabase
+      .from('finding_messages')
+      .select('id, workspace_id, finding_id, corrective_action_id, message_type, direction, sent_at, sender_user_id, sender_label, to_recipients, subject, body, external_message_id, recorded_by, created_at')
+      .eq('workspace_id', workspace.id)
+      .order('sent_at', { ascending: false }),
+    supabase
+      .from('finding_comments')
+      .select('id, workspace_id, finding_id, corrective_action_id, comment_type, visibility, body, author_user_id, created_at')
+      .eq('workspace_id', workspace.id)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('is_active', true),
   ])
 
-  if (findingsResult.error || actionsResult.error || historyResult.error) {
+  if (
+    findingsResult.error
+    || actionsResult.error
+    || historyResult.error
+    || messagesResult.error
+    || commentsResult.error
+    || profilesResult.error
+  ) {
     throw new FinancialControlServiceError(
       'query',
       'تعذر قراءة بيانات الرقابة المالية من Supabase. تحقق من الاتصال والصلاحيات.',
@@ -159,8 +186,13 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
 
   const correctiveActions = (actionsResult.data ?? []) as FinancialControlCorrectiveAction[]
   const statusHistory = (historyResult.data ?? []) as FinancialControlStatusHistory[]
+  const messages = (messagesResult.data ?? []) as FinancialControlMessage[]
+  const comments = (commentsResult.data ?? []) as FinancialControlComment[]
+  const profiles = (profilesResult.data ?? []) as FinancialControlProfile[]
   const actionsByFinding = new Map<string, FinancialControlCorrectiveAction[]>()
   const historyByFinding = new Map<string, FinancialControlStatusHistory[]>()
+  const messagesByFinding = new Map<string, FinancialControlMessage[]>()
+  const commentsByFinding = new Map<string, FinancialControlComment[]>()
 
   correctiveActions.forEach((action) => {
     const current = actionsByFinding.get(action.finding_id) ?? []
@@ -174,9 +206,21 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     historyByFinding.set(historyItem.finding_id, current)
   })
 
+  messages.forEach((message) => {
+    const current = messagesByFinding.get(message.finding_id) ?? []
+    current.push(message)
+    messagesByFinding.set(message.finding_id, current)
+  })
+
+  comments.forEach((comment) => {
+    const current = commentsByFinding.get(comment.finding_id) ?? []
+    current.push(comment)
+    commentsByFinding.set(comment.finding_id, current)
+  })
+
   const findings = ((findingsResult.data ?? []) as Omit<
     FinancialControlFinding,
-    'official_recommendation' | 'corrective_actions' | 'status_history'
+    'official_recommendation' | 'corrective_actions' | 'status_history' | 'messages' | 'comments'
   >[]).map((finding) => {
     const findingActions = actionsByFinding.get(finding.id) ?? []
 
@@ -185,6 +229,8 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
       official_recommendation: findingActions[0]?.official_action_text ?? null,
       corrective_actions: findingActions,
       status_history: historyByFinding.get(finding.id) ?? [],
+      messages: messagesByFinding.get(finding.id) ?? [],
+      comments: commentsByFinding.get(finding.id) ?? [],
     }
   })
 
@@ -193,8 +239,100 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     memberships,
     findings,
     correctiveActions,
+    profiles,
     summary: buildSummary(findings, correctiveActions),
   }
+}
+
+async function getAuthenticatedUserId() {
+  const { data, error } = await supabase.auth.getUser()
+  if (error || !data.user) {
+    throw new FinancialControlServiceError(
+      'authentication',
+      'تعذر التحقق من جلسة المستخدم الحالية. يرجى تسجيل الدخول مجددًا.',
+    )
+  }
+  return data.user.id
+}
+
+function requireText(value: string, fieldLabel: string) {
+  const normalized = value.trim()
+  if (!normalized) throw new FinancialControlServiceError('validation', `${fieldLabel} مطلوب.`)
+  return normalized
+}
+
+export async function recordSentEmail(input: RecordSentEmailInput): Promise<void> {
+  const recordedBy = await getAuthenticatedUserId()
+  const recipient = requireText(input.recipient, 'الجهة المرسل إليها')
+  const subject = requireText(input.subject, 'موضوع البريد')
+  const reference = requireText(input.reference, 'مرجع البريد أو رقم المعاملة')
+  const summary = requireText(input.summary, 'الملخص غير الحساس')
+  const { error } = await supabase.from('finding_messages').insert({
+    workspace_id: input.workspaceId,
+    finding_id: input.findingId,
+    corrective_action_id: null,
+    parent_message_id: null,
+    message_type: 'sent_email',
+    direction: 'outbound',
+    channel: 'manual_log',
+    sent_at: input.sentAt,
+    sender_user_id: recordedBy,
+    sender_label: null,
+    to_recipients: [recipient],
+    cc_recipients: [],
+    subject,
+    body: summary,
+    external_message_id: reference,
+    recorded_by: recordedBy,
+  })
+
+  if (error) throw toMutationError(error, 'تعذر تسجيل البريد الرسمي المرسل.')
+}
+
+export async function recordOfficialReply(input: RecordOfficialReplyInput): Promise<void> {
+  const recordedBy = await getAuthenticatedUserId()
+  const sender = requireText(input.sender, 'الجهة المرسلة')
+  const reference = requireText(input.reference, 'مرجع البريد')
+  const replyText = requireText(input.replyText, 'نص الرد المنسوخ')
+  const { error } = await supabase.from('finding_messages').insert({
+    workspace_id: input.workspaceId,
+    finding_id: input.findingId,
+    corrective_action_id: null,
+    parent_message_id: null,
+    message_type: 'department_reply',
+    direction: 'inbound',
+    channel: 'manual_log',
+    sent_at: input.repliedAt,
+    sender_user_id: null,
+    sender_label: sender,
+    to_recipients: [],
+    cc_recipients: [],
+    subject: null,
+    body: replyText,
+    external_message_id: reference,
+    recorded_by: recordedBy,
+  })
+
+  if (error) throw toMutationError(error, 'تعذر تسجيل الرد الرسمي.')
+}
+
+export async function addFollowUpComment(input: AddFollowUpCommentInput): Promise<void> {
+  const authorUserId = await getAuthenticatedUserId()
+  const body = requireText(input.body, 'نص ملاحظة المتابعة')
+  const { error } = await supabase.from('finding_comments').insert({
+    workspace_id: input.workspaceId,
+    finding_id: input.findingId,
+    corrective_action_id: null,
+    parent_comment_id: null,
+    comment_type: 'internal',
+    visibility: 'workspace',
+    body,
+    author_user_id: authorUserId,
+    supersedes_comment_id: null,
+    created_at: input.activityDate,
+  })
+
+  if (error) throw toMutationError(error, 'تعذر إضافة ملاحظة المتابعة.')
 }
 
 export async function updateCorrectiveActionProgress(

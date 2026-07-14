@@ -622,3 +622,24 @@
 - سياسة الاحتفاظ والحذف؛ مدة Signed URL المقترحة 10 دقائق.
 - Mapping أعمدة `audit_logs` وتنفيذ RPCs الذرية ومنع تجاوزها.
 - `case_code` النهائي وصيغة ترقيم الإجراءات التصحيحية.
+
+## 12. مواءمة النسخة التشغيلية المبسطة مع الجداول الحالية
+
+لا تتطلب النسخة المبسطة جدولًا جديدًا أو Migration جديدة، وتستخدم البنية الحالية كما يلي:
+
+| الوظيفة | الجدول الحالي | طريقة الاستخدام |
+|---|---|---|
+| البريد الرسمي والردود | `finding_messages` | سجلات append-only من نوع `sent_email` أو `department_reply` مع `manual_log` ومرجع المعاملة في `external_message_id` |
+| ملاحظة المتابعة | `finding_comments` | تعليق `internal` ظاهر على مستوى Workspace |
+| تقدم التنفيذ | `corrective_actions` | تحديث `progress_percent` و`execution_details` و`updated_by/updated_at/lock_version` دون تحديث الحالة مباشرة |
+| رفع الملاحظة وقرارات المدير | `financial_control_findings` + RPC | انتقالات ذرية فقط عبر `financial_control_transition_finding` |
+| تاريخ الحالة | `finding_status_history` | قراءة السجلات التي ينشئها RPC، دون إدخال مباشر من العميل |
+
+السجل الزمني الموحد في هذه المرحلة نموذج قراءة في التطبيق يجمع السجلات السابقة زمنيًا، وليس جدولًا مكررًا. أسماء المستخدمين تُقرأ من `profiles.full_name` عبر المفاتيح الموجودة في `recorded_by` و`author_user_id` و`changed_by` و`updated_by`.
+
+### 12.1 قيود موثقة للنسخة الأولى
+
+- `finding_comments` لا يحتوي تاريخ حدث مستقلًا عن `created_at`؛ تستخدم النسخة الأولى التاريخ المدخل كتاريخ التعليق، ويجب تقييم فصل `activity_date` عن وقت التسجيل في إصدار لاحق قبل أي Migration.
+- وصف التقدم والعوائق يخزنان نصيًا داخل `corrective_actions.execution_details` بصيغة واضحة، دون إضافة حقول جديدة في هذه المرحلة.
+- الصور المرجعية أصول تطبيق ثابتة وليست مرفقات ولا تحفظ في Supabase أو داخل حقول Base64.
+- لا تستخدم `finding_attachments` في النسخة الأولى، ولا توجد واجهة رفع ملفات.

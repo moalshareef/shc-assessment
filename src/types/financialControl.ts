@@ -42,6 +42,11 @@ export interface FinancialControlMembership {
   ends_at: string | null
 }
 
+export interface FinancialControlProfile {
+  id: string
+  full_name: string
+}
+
 export interface FinancialControlFinding {
   id: string
   workspace_id: string
@@ -65,6 +70,8 @@ export interface FinancialControlFinding {
   official_recommendation: string | null
   corrective_actions: FinancialControlCorrectiveAction[]
   status_history: FinancialControlStatusHistory[]
+  messages: FinancialControlMessage[]
+  comments: FinancialControlComment[]
 }
 
 export interface FinancialControlCorrectiveAction {
@@ -81,7 +88,64 @@ export interface FinancialControlCorrectiveAction {
   official_due_date: string
   current_due_date: string
   updated_at: string
+  updated_by: string | null
   lock_version: number
+}
+
+export interface FinancialControlMessage {
+  id: string
+  workspace_id: string
+  finding_id: string
+  corrective_action_id: string | null
+  message_type: 'sent_email' | 'department_reply' | 'internal_message' | 'reminder'
+  direction: 'outbound' | 'inbound' | 'internal'
+  sent_at: string
+  sender_user_id: string | null
+  sender_label: string | null
+  to_recipients: string[]
+  subject: string | null
+  body: string
+  external_message_id: string | null
+  recorded_by: string | null
+  created_at: string
+}
+
+export interface FinancialControlComment {
+  id: string
+  workspace_id: string
+  finding_id: string
+  corrective_action_id: string | null
+  comment_type: 'internal' | 'execution_update' | 'return_reason' | 'approval_note'
+  visibility: 'workspace' | 'action_participants' | 'managers'
+  body: string
+  author_user_id: string | null
+  created_at: string
+}
+
+export interface RecordSentEmailInput {
+  workspaceId: string
+  findingId: string
+  sentAt: string
+  recipient: string
+  subject: string
+  reference: string
+  summary: string
+}
+
+export interface RecordOfficialReplyInput {
+  workspaceId: string
+  findingId: string
+  repliedAt: string
+  sender: string
+  reference: string
+  replyText: string
+}
+
+export interface AddFollowUpCommentInput {
+  workspaceId: string
+  findingId: string
+  activityDate: string
+  body: string
 }
 
 export interface UpdateCorrectiveActionProgressInput {
@@ -135,6 +199,7 @@ export interface FinancialControlDashboardData {
   memberships: FinancialControlMembership[]
   findings: FinancialControlFinding[]
   correctiveActions: FinancialControlCorrectiveAction[]
+  profiles: FinancialControlProfile[]
   summary: FinancialControlSummary
 }
 

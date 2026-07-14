@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../../components/layout/Header'
 import type { IconName } from '../../components/layout/Header'
+import { FindingUpdatePanel } from './FindingUpdatePanel'
+import { formatArabicDate, formatArabicDateTime } from './dateFormat'
 import {
   getFinancialControlDashboard,
   transitionFinancialControlAction,
@@ -131,6 +133,105 @@ function mutationErrorMessage(error: unknown) {
   return 'تعذر حفظ التحديث. حاول مرة أخرى.'
 }
 
+interface FindingTimelineEvent {
+  id: string
+  type: string
+  date: string
+  actor: string
+  text: string
+  progress: number | null
+  reference: string | null
+}
+
+function buildTimeline(
+  finding: FinancialControlFinding,
+  profileNames: Map<string, string>,
+): FindingTimelineEvent[] {
+  const actorName = (id: string | null) => (id ? profileNames.get(id) ?? 'مستخدم مسجل' : 'النظام')
+  const events: FindingTimelineEvent[] = [
+    ...finding.messages.map((message) => ({
+      id: `message-${message.id}`,
+      type: message.message_type === 'sent_email' ? 'إرسال بريد رسمي' : 'تسجيل رد رسمي',
+      date: message.sent_at,
+      actor: actorName(message.recorded_by),
+      text: message.subject ? `${message.subject} — ${message.body}` : message.body,
+      progress: null,
+      reference: message.external_message_id,
+    })),
+    ...finding.comments.map((comment) => ({
+      id: `comment-${comment.id}`,
+      type: comment.comment_type === 'execution_update' ? 'تحديث تنفيذ' : 'ملاحظة متابعة',
+      date: comment.created_at,
+      actor: actorName(comment.author_user_id),
+      text: comment.body,
+      progress: null,
+      reference: null,
+    })),
+    ...finding.status_history.map((historyItem) => ({
+      id: `status-${historyItem.id}`,
+      type: 'تغيير حالة الملاحظة',
+      date: historyItem.changed_at,
+      actor: actorName(historyItem.changed_by),
+      text: `${historyItem.from_status ? `${statusLabels[historyItem.from_status]} ← ` : ''}${statusLabels[historyItem.to_status]}${historyItem.reason ? ` — ${historyItem.reason}` : ''}`,
+      progress: historyItem.progress_after,
+      reference: null,
+    })),
+    ...finding.corrective_actions
+      .filter((action) => action.updated_by !== null)
+      .map((action) => ({
+        id: `action-${action.id}-${action.lock_version}`,
+        type: 'تحديث نسبة الإنجاز',
+        date: action.updated_at,
+        actor: actorName(action.updated_by),
+        text: action.execution_details ?? `تحديث الإجراء التصحيحي رقم ${action.action_no}`,
+        progress: action.progress_percent,
+        reference: null,
+      })),
+  ]
+
+  return events.sort((first, second) => new Date(second.date).getTime() - new Date(first.date).getTime())
+}
+
+function FindingReferenceImage({ code }: { code: string }) {
+  const [failed, setFailed] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  if (failed) return <p style={{ color: 'var(--muted)' }}>لا تتوفر صورة مرجعية لهذه الملاحظة؛ النص الرسمي أعلاه هو المرجع النصي المعتمد.</p>
+
+  return (
+    <>
+      <div style={{ display: 'grid', justifyItems: 'center', gap: 12, marginTop: 14 }}>
+        <img
+          src={`${import.meta.env.BASE_URL}financial-control/findings/${code}.webp`}
+          alt={`المرجع الرسمي للملاحظة ${code}`}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          style={{ display: 'block', width: 'auto', maxWidth: 'min(100%, 440px)', maxHeight: 420, objectFit: 'contain', borderRadius: 12, border: '1px solid var(--border)' }}
+        />
+        <button className="secondary-button" type="button" onClick={() => setExpanded(true)}>عرض بالحجم الكامل</button>
+      </div>
+      {expanded ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`المرجع الرسمي للملاحظة ${code} بالحجم الكامل`}
+          style={{ position: 'fixed', inset: 0, zIndex: 1200, background: 'rgba(10, 28, 45, 0.88)', display: 'grid', gridTemplateRows: 'auto 1fr', gap: 12, padding: 20 }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button className="secondary-button" type="button" onClick={() => setExpanded(false)}>إغلاق العرض</button>
+          </div>
+          <div style={{ overflow: 'auto', display: 'grid', placeItems: 'start center' }}>
+            <img
+              src={`${import.meta.env.BASE_URL}financial-control/findings/${code}.webp`}
+              alt={`المرجع الرسمي للملاحظة ${code} بالحجم الكامل`}
+              style={{ display: 'block', width: 827, maxWidth: 'none', height: 'auto', borderRadius: 10, background: '#fff' }}
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 interface FinancialControlPageProps {
   onOpenWorkspace: () => void
 }
@@ -226,6 +327,8 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
   const selectedFinding = data?.findings.find((finding) => finding.id === selectedFindingId) ?? null
   const currentRoles = data?.memberships.map((membership) => membership.role) ?? []
   const currentUserId = data?.memberships[0]?.user_id ?? null
+  const profileNames = new Map(data?.profiles.map((profile) => [profile.id, profile.full_name]) ?? [])
+  const selectedTimeline = selectedFinding ? buildTimeline(selectedFinding, profileNames) : []
   const stats: Array<{ label: string; value: string; icon: IconName }> = data
     ? [
         { label: 'إجمالي الملاحظات', value: String(data.summary.totalFindings), icon: 'report' },
@@ -254,8 +357,10 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
       await operation()
       applyDashboardData(await getFinancialControlDashboard())
       setMutationSuccess(successMessage)
+      return true
     } catch (requestError: unknown) {
       setMutationError(mutationErrorMessage(requestError))
+      return false
     } finally {
       setMutationKey(null)
     }
@@ -312,6 +417,15 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
     : []
 
   if (selectedFinding) {
+    const lastSentEmail = selectedFinding.messages.find((message) => message.message_type === 'sent_email')
+    const lastOfficialReply = selectedFinding.messages.find((message) => message.message_type === 'department_reply')
+    const lastActivityDate = selectedTimeline[0]?.date ?? selectedFinding.last_activity_at ?? selectedFinding.updated_at
+    const daysWithoutUpdate = Math.max(0, Math.floor((Date.now() - new Date(lastActivityDate).getTime()) / 86_400_000))
+    const needsManagerReview = ['submitted_for_manager_review', 'under_manager_review'].includes(selectedFinding.workflow_status)
+    const trackingProgress = selectedFinding.corrective_actions.length > 0
+      ? Math.round(selectedFinding.corrective_actions.reduce((sum, action) => sum + action.progress_percent, 0) / selectedFinding.corrective_actions.length)
+      : selectedFinding.progress_percent
+
     return (
       <div className="detail-panel" data-testid="financial-control-details">
         <div className="breadcrumb">الرئيسية / تقرير الكفاءة الرقابية / {selectedFinding.reference_code}</div>
@@ -333,14 +447,34 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
           <section className="panel" role="alert" style={{ color: 'var(--danger)', background: '#fff0f0' }}>{mutationError}</section>
         ) : null}
 
+        <FindingUpdatePanel
+          finding={selectedFinding}
+          roles={currentRoles}
+          busy={mutationKey !== null}
+          onRun={runMutation}
+        />
+
+        <section className="detail-section" aria-label="ملخص متابعة الملاحظة">
+          <h2>ملخص المتابعة</h2>
+          <div className="detail-grid" style={{ marginTop: 14 }}>
+            <div className="detail-card"><span>آخر تحديث</span><strong>{formatArabicDateTime(lastActivityDate)}</strong></div>
+            <div className="detail-card"><span>آخر بريد مرسل</span><strong>{lastSentEmail ? formatArabicDateTime(lastSentEmail.sent_at) : 'لا يوجد'}</strong></div>
+            <div className="detail-card"><span>آخر رد</span><strong>{lastOfficialReply ? formatArabicDateTime(lastOfficialReply.sent_at) : 'لا يوجد'}</strong></div>
+            <div className="detail-card"><span>عدد الأيام دون تحديث</span><strong>{daysWithoutUpdate} يوم</strong></div>
+            <div className="detail-card"><span>نسبة الإنجاز</span><strong>{trackingProgress}%</strong></div>
+            <div className="detail-card"><span>تحتاج مراجعة المدير؟</span><strong>{needsManagerReview ? 'نعم' : 'لا'}</strong></div>
+            <div className="detail-card"><span>تجاوزت الموعد؟</span><strong>{isFindingOverdue(selectedFinding) ? 'نعم' : 'لا'}</strong></div>
+          </div>
+        </section>
+
         <div className="detail-grid">
           <section className="detail-card">
             <h2>بيانات المتابعة</h2>
             <div className="detail-item"><span>التقييم</span><strong>{ratingLabels[selectedFinding.assessment_rating]}</strong></div>
             <div className="detail-item"><span>الحالة</span><strong>{statusLabels[selectedFinding.workflow_status]}</strong></div>
             <div className="detail-item"><span>المسؤول الرسمي</span><strong>{selectedFinding.official_owner_label}</strong></div>
-            <div className="detail-item"><span>الموعد المستهدف</span><strong>{selectedFinding.official_due_date}</strong></div>
-            <div className="detail-item"><span>نسبة الإنجاز</span><strong>{selectedFinding.progress_percent}%</strong></div>
+            <div className="detail-item"><span>الموعد المستهدف</span><strong>{formatArabicDate(selectedFinding.official_due_date)}</strong></div>
+            <div className="detail-item"><span>نسبة الإنجاز</span><strong>{trackingProgress}%</strong></div>
             <div className="detail-item"><span>نسخة السجل</span><strong>{selectedFinding.lock_version}</strong></div>
             {availableFindingTransitions.length > 0 ? (
               <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
@@ -387,6 +521,12 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
         </section>
 
         <section className="detail-section">
+          <h2>المرجع الرسمي للملاحظة</h2>
+          <p style={{ color: 'var(--muted)', marginTop: 8 }}>صورة مرجعية مساعدة من الأصل الوظيفي، ولا تستبدل النص الرسمي القابل للبحث.</p>
+          <FindingReferenceImage code={selectedFinding.reference_code}/>
+        </section>
+
+        <section className="detail-section">
           <h2>التوصية والإجراء التصحيحي</h2>
           {selectedFinding.corrective_actions.length > 0 ? (
             <div style={{ display: 'grid', gap: 14, marginTop: 14 }}>
@@ -407,7 +547,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                       <span className="status">{actionStatusLabels[action.workflow_status]}</span>
                     </div>
                     <p style={{ color: '#2d4357', lineHeight: 2 }}>{action.official_action_text}</p>
-                    <div className="detail-item"><span>الموعد</span><strong>{action.current_due_date}</strong></div>
+                    <div className="detail-item"><span>الموعد</span><strong>{formatArabicDate(action.current_due_date)}</strong></div>
                     <div className="detail-item"><span>الإنجاز</span><strong>{action.progress_percent}%</strong></div>
                     <div className="detail-item"><span>نسخة السجل (lock_version)</span><strong>{action.lock_version}</strong></div>
 
@@ -488,19 +628,27 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
           )}
         </section>
 
-        <section className="detail-section">
-          <h2>سجل الحالة</h2>
-          {selectedFinding.status_history.length > 0 ? (
-            <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-              {selectedFinding.status_history.map((historyItem) => (
-                <div className="detail-item" key={historyItem.id}>
-                  <span>{new Date(historyItem.changed_at).toLocaleString('ar-SA')}</span>
-                  <strong>{historyItem.from_status ? `${statusLabels[historyItem.from_status]} ← ` : ''}{statusLabels[historyItem.to_status]}</strong>
-                </div>
+        <section className="detail-section" data-testid="finding-timeline">
+          <h2>السجل الزمني الموحد</h2>
+          {selectedTimeline.length > 0 ? (
+            <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
+              {selectedTimeline.map((event) => (
+                <article key={event.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 14, display: 'grid', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <strong>{event.type}</strong>
+                    <time dateTime={event.date}>{formatArabicDateTime(event.date)}</time>
+                  </div>
+                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>سجله: {event.actor}</div>
+                  <p style={{ color: '#2d4357', lineHeight: 1.8, whiteSpace: 'pre-wrap', margin: 0 }}>{event.text}</p>
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13 }}>
+                    {event.progress !== null ? <span>نسبة الإنجاز: <strong>{event.progress}%</strong></span> : null}
+                    {event.reference ? <span>مرجع البريد: <strong>{event.reference}</strong></span> : null}
+                  </div>
+                </article>
               ))}
             </div>
           ) : (
-            <p style={{ color: 'var(--muted)', marginTop: 12 }}>لا توجد انتقالات حالة مسجلة حتى الآن.</p>
+            <p style={{ color: 'var(--muted)', marginTop: 12 }}>لا توجد تحديثات تشغيلية أو انتقالات حالة مسجلة حتى الآن.</p>
           )}
         </section>
       </div>
@@ -554,7 +702,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
               </select>
               <select aria-label="تصفية حسب تاريخ الاستحقاق" data-testid="due-date-filter" style={controlStyle} value={dueDateFilter} onChange={(event) => setDueDateFilter(event.target.value)}>
                 <option value="all">كل تواريخ الاستحقاق</option>
-                {dueDates.map((date) => <option value={date} key={date}>{date}</option>)}
+                {dueDates.map((date) => <option value={date} key={date}>{formatArabicDate(date)}</option>)}
               </select>
               <select aria-label="ترتيب الملاحظات" data-testid="finding-sort" style={controlStyle} value={sortBy} onChange={(event) => setSortBy(event.target.value as FindingSort)}>
                 <option value="code_asc">الكود: تصاعدي</option>
@@ -579,7 +727,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                     <td>{ratingLabels[item.assessment_rating]}</td>
                     <td>{item.official_owner_label}</td>
                     <td><span className={`status ${statusClass(item)}`}>{isFindingOverdue(item) ? 'متأخرة' : statusLabels[item.workflow_status]}</span></td>
-                    <td>{item.official_due_date}</td>
+                    <td>{formatArabicDate(item.official_due_date)}</td>
                     <td><div className="progress-cell"><div className="progress-track"><span style={{ width: `${item.progress_percent}%` }} /></div><span>{item.progress_percent}%</span></div></td>
                     <td><button className="secondary-button" type="button" onClick={() => setSelectedFindingId(item.id)} aria-label={`فتح تفاصيل الملاحظة ${item.reference_code}`}>التفاصيل</button></td>
                   </tr>
