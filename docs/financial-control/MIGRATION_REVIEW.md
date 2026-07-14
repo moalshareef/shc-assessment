@@ -430,3 +430,89 @@
 - [Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security): تفعيل RLS على الجداول في schema معروض، واستخدام `USING` و`WITH CHECK`، وضرورة SELECT policy لعمليات UPDATE.
 - [Storage Access Control](https://supabase.com/docs/guides/storage/security/access-control): سياسات Storage تعتمد على `storage.objects`، وعمليات upsert تحتاج صلاحيات إضافية؛ لم تنشأ في هذه الحزمة.
 - [Storage Buckets](https://supabase.com/docs/guides/storage/buckets/fundamentals): الملفات الخاصة تخضع للتحكم بالوصول ويمكن خدمتها بروابط موقعة محدودة المدة؛ إنشاء bucket مؤجل.
+
+## 14. مسودة التشديد الأمني لدوال RLS
+
+الملف `supabase/migrations/financial_control_security_hardening_draft.sql` مسودة تكميلية فقط، ولم تُطبق على Supabase. نطاقها محصور في دوال RLS وسياسات جداول الرقابة المالية؛ لا تنشئ أو تعدل جدولًا، ولا تغير بيانات، ولا تمس Seed أو React أو دوال الركائز القديمة.
+
+### 14.1 الدوال المنقولة من `public` إلى `private`
+
+- `financial_control_has_role(uuid, text[])`
+- `financial_control_user_has_role(uuid, uuid, text[])`
+- `financial_control_can_read_finding(uuid, uuid)`
+- `financial_control_can_read_item(uuid, uuid, uuid)`
+
+تعاد الدوال الأربع داخل `private` بصيغة `SECURITY DEFINER` و`SET search_path = ''`، وبمراجع مؤهلة مثل `public.financial_control_members` و`public.corrective_actions` و`auth.uid()` و`pg_catalog.now()`. وبعد تحويل جميع الاعتمادات، تسحب صلاحيات النسخ العامة ثم تسقط هذه النسخ.
+
+الدوال الداخلية التالية يعاد تعريفها دون تغيير منطقها أو توقيعاتها؛ التغيير الوحيد هو استبدال استدعاء `public.financial_control_has_role` باستدعاء `private.financial_control_has_role` حتى لا تتعطل RPCs بعد إسقاط النسخة العامة:
+
+- `private.financial_control_transition_finding_tx`
+- `private.financial_control_transition_action_tx`
+- `private.financial_control_decide_extension_tx`
+
+لا تعيد المسودة إنشاء أو تعديل RPCs العامة الثلاث: `public.financial_control_transition_finding` و`public.financial_control_transition_action` و`public.financial_control_decide_extension`.
+
+### 14.2 السياسات المتغيرة
+
+تعدل المسودة تعبيرات السياسات الـ33 القائمة فقط، مع الإبقاء على نوع العملية والدور `authenticated` والسلوك الوظيفي دون تغيير. تغطي الجداول الـ16 التالية:
+
+1. `financial_control_members` — ثلاث سياسات.
+2. `financial_control_source_documents` — سياسة واحدة.
+3. `financial_control_unit_aliases` — سياسة واحدة.
+4. `financial_control_escalation_rules` — سياسة واحدة.
+5. `financial_control_findings` — سياستان.
+6. `financial_control_finding_versions` — سياسة واحدة.
+7. `corrective_actions` — ثلاث سياسات.
+8. `finding_assignments` — ثلاث سياسات.
+9. `finding_comments` — سياستان.
+10. `finding_messages` — سياستان.
+11. `finding_attachments` — ثلاث سياسات.
+12. `finding_status_history` — سياسة واحدة.
+13. `corrective_action_status_history` — سياسة واحدة.
+14. `extension_requests` — ثلاث سياسات.
+15. `escalations` — ثلاث سياسات.
+16. `approvals` — ثلاث سياسات.
+
+كل مرجع في هذه السياسات إلى `public.financial_control_has_role` أو `public.financial_control_user_has_role` أو `public.financial_control_can_read_finding` أو `public.financial_control_can_read_item` يتحول إلى النسخة المناظرة داخل `private`.
+
+### 14.3 الصلاحيات النهائية المقترحة
+
+- `anon`: لا `USAGE` على schema `private` ولا `EXECUTE` على الدوال الأربع.
+- `authenticated`: يحتفظ بـ`USAGE` على `private` اللازم أيضًا لسياسات الركائز الحالية، ويمنح `EXECUTE` على دوال RLS الأربع فقط بالقدر الذي يتطلبه PostgreSQL لتقييم السياسات.
+- الدوال الداخلية الثلاث `*_tx`: لا `EXECUTE` لـ`PUBLIC` أو `anon` أو `authenticated`، وتبقى قابلة للوصول من RPCs العامة ذات `SECURITY DEFINER` فقط.
+- النسخ الأربع في `public`: تسحب صلاحيات `PUBLIC` و`anon` و`authenticated` ثم تسقط، ولذلك لا تظهر كنقاط RPC في Data API.
+- RPCs العامة الثلاث: لا تتغير صلاحياتها أو توقيعاتها.
+
+لا يوفر PostgreSQL صلاحية `EXECUTE` مقيدة بموقع الاستدعاء «داخل السياسة فقط». الحد الأدنى الآمن هنا هو وضع helper في schema غير معروض، ومنع `anon`، ومنح `authenticated` ما يلزم لتقييم RLS فقط، مع اقتصار نتائج الدوال على `boolean` وربط قراراتها بـ`auth.uid()` والعضوية الفعلية.
+
+### 14.4 ترتيب التنفيذ والذرية
+
+1. بدء معاملة واحدة وضبط مهلة الأقفال والتعليمات محليًا.
+2. إنشاء دوال RLS الأربع داخل `private` وضبط صلاحياتها.
+3. إعادة تعريف دوال التنفيذ الداخلية الثلاث لتستخدم helper الخاص.
+4. تعديل تعبيرات السياسات الـ33 على الجداول الـ16.
+5. سحب صلاحيات النسخ العامة الأربع وإسقاطها.
+6. تنفيذ `COMMIT`.
+
+أي خطأ قبل `COMMIT` يعيد جميع الخطوات تلقائيًا، فلا تبقى حالة وسطية تجمع سياسات جديدة مع دوال ناقصة.
+
+### 14.5 خطة التراجع
+
+بعد نجاح التطبيق مستقبلًا، يكون التراجع عبر Migration عكسية مستقلة داخل معاملة واحدة:
+
+1. إعادة إنشاء الدوال الأربع السابقة داخل `public` مع ACL السابق.
+2. إعادة تعريف الدوال الداخلية الثلاث لتستدعي `public.financial_control_has_role`.
+3. إعادة تعبيرات السياسات الـ33 إلى مراجع `public.financial_control_*` السابقة.
+4. سحب `EXECUTE` على دوال RLS الأربع داخل `private` ثم إسقاطها.
+
+لا يتضمن التراجع أي تعديل للجداول أو البيانات أو RPCs العامة أو دوال الركائز. يجب اختبار مسار التراجع على بيئة اختبار قبل اعتماد تطبيق مسودة التشديد.
+
+### 14.6 بوابة التحقق قبل التطبيق
+
+- Parse فعلي للملف على قاعدة اختبار متطابقة.
+- التأكد أن السياسات الـ33 ما زالت مرتبطة بالجداول والأوامر والأدوار نفسها.
+- اختبار أدوار `owner` و`manager` و`specialist` و`action_owner` و`viewer` ومستخدم غير عضو.
+- اختبار RPCs الانتقالية الثلاث بعد حذف نسخ helpers من `public`.
+- التحقق أن `anon` لا يملك `USAGE` أو `EXECUTE` فعالًا.
+- التأكد أن سياسات الركائز السبع ودوالها القديمة لم تتغير.
+- تشغيل Database Advisors للأمان والأداء بعد التطبيق التجريبي.

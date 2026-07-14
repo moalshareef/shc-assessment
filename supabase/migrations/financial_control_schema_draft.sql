@@ -17,7 +17,7 @@ begin;
 create schema if not exists private;
 
 revoke all on schema private from public;
-revoke usage on schema private from anon, authenticated;
+revoke usage on schema private from anon;
 
 -- --------------------------------------------------------------------------
 -- 1. عضويات الرقابة المالية المستقلة
