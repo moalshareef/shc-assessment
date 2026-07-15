@@ -1,4 +1,4 @@
-import type { InvitePlatformUserInput, PlatformAdminUser, PlatformUserAdminResult } from '../../types/platformUserAdmin'
+import type { CreatePlatformUserInput, InvitePlatformUserInput, PlatformAdminUser, PlatformUserAdminResult } from '../../types/platformUserAdmin'
 
 export interface PlatformUserAdminInvoker {
   (body: Record<string, unknown>): Promise<{ data: unknown; error: { message: string; context?: unknown } | null }>
@@ -39,6 +39,16 @@ export function createPlatformUsersApi(invoke: PlatformUserAdminInvoker, verifyO
     },
     async inviteUser(input: InvitePlatformUserInput) {
       const data = await call({ action: 'invite_user', email: input.email.trim().toLowerCase(), full_name: input.fullName.trim(), primary_organization_id: input.primaryOrganizationId })
+      return data.result as PlatformUserAdminResult
+    },
+    async createUser(input: CreatePlatformUserInput) {
+      const data = await call({
+        action: 'create_user',
+        email: input.email.trim().toLowerCase(),
+        full_name: input.fullName.trim(),
+        primary_organization_id: input.primaryOrganizationId,
+        temporary_password: input.temporaryPassword,
+      })
       return data.result as PlatformUserAdminResult
     },
     async suspendUser(userId: string, reason: string) {

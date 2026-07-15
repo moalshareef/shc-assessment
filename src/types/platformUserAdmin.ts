@@ -22,6 +22,15 @@ export interface InvitePlatformUserInput {
   primaryOrganizationId: string
 }
 
+export interface CreatePlatformUserInput extends InvitePlatformUserInput {
+  temporaryPassword: string
+}
+
+export interface CurrentProfileAccessState {
+  isActive: boolean
+  mustChangePassword: boolean
+}
+
 export interface PlatformUserAdminResult {
   userId: string
   profileStatus?: PlatformUserProfileStatus

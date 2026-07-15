@@ -11,14 +11,26 @@ const api = createPlatformUsersApi(
 )
 
 export const listPlatformUsers = api.listUsers
+export const createPlatformUser = api.createUser
 export const invitePlatformUser = api.inviteUser
 export const suspendPlatformUser = api.suspendUser
 export const activatePlatformUser = api.activateUser
 
-export async function currentProfileIsActive() {
-  const { data: userData, error: userError } = await supabase.auth.getUser()
-  if (userError || !userData.user) return false
-  const { data, error } = await supabase.from('profiles').select('is_active').eq('id', userData.user.id).single()
+export async function currentProfileAccessState() {
+  const { data, error } = await supabase.rpc('platform_current_user_access_state')
   if (error) throw error
-  return data.is_active === true
+  const row = Array.isArray(data) ? data[0] : data
+  return { isActive: row?.is_active === true, mustChangePassword: row?.must_change_password === true }
+}
+
+export async function changeOwnTemporaryPassword(newPassword: string) {
+  const { data, error } = await supabase.functions.invoke('platform-user-admin', {
+    body: { action: 'change_own_password', new_password: newPassword },
+  })
+  if (error) {
+    const context = error.context as { json?: () => Promise<{ message?: string }> } | undefined
+    const message = context?.json ? await context.json().then((body) => body.message || error.message).catch(() => error.message) : error.message
+    throw new Error(message)
+  }
+  return data
 }

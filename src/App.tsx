@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AppLayout } from './components/layout/AppLayout'
 import { LoginPage } from './features/auth/LoginPage'
+import { PasswordChangePage } from './features/auth/PasswordChangePage'
 import { HomePage } from './features/home/HomePage'
 import { WorkspacesPage } from './features/workspaces/WorkspacesPage'
 import { PillarsPage } from './features/spending-efficiency/PillarsPage'
@@ -9,7 +10,7 @@ import { PillarDetailsPage } from './features/spending-efficiency/PillarDetailsP
 import { PlatformAdminPage } from './features/platform-admin/PlatformAdminPage'
 import { supabase } from './lib/supabase'
 import { currentUserIsSystemOwner } from './services/platformAdminService'
-import { currentProfileIsActive } from './services/platformUserAdminService'
+import { currentProfileAccessState } from './services/platformUserAdminService'
 import type { ViewName } from './app/types'
 import type { SupabasePillar } from './types/spendingEfficiency'
 
@@ -33,6 +34,7 @@ export default function App() {
   const [isSystemOwner, setIsSystemOwner] = useState(false)
   const [profileAccessReady, setProfileAccessReady] = useState(false)
   const [profileActive, setProfileActive] = useState(false)
+  const [mustChangePassword, setMustChangePassword] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -62,15 +64,19 @@ export default function App() {
     if (!session) {
       setIsSystemOwner(false)
       setProfileActive(false)
+      setMustChangePassword(false)
       setProfileAccessReady(true)
       return
     }
 
     let active = true
     setProfileAccessReady(false)
-    void currentProfileIsActive()
-      .then((isActive) => {
-        if (active) setProfileActive(isActive)
+    void currentProfileAccessState()
+      .then((access) => {
+        if (active) {
+          setProfileActive(access.isActive)
+          setMustChangePassword(access.mustChangePassword)
+        }
       })
       .catch(() => {
         if (active) setProfileActive(false)
@@ -137,6 +143,17 @@ export default function App() {
     }
   }
 
+  const refreshProfileAccess = async () => {
+    setProfileAccessReady(false)
+    try {
+      const access = await currentProfileAccessState()
+      setProfileActive(access.isActive)
+      setMustChangePassword(access.mustChangePassword)
+    } finally {
+      setProfileAccessReady(true)
+    }
+  }
+
   if (!authReady) {
     return <main className="auth-page" dir="rtl"><p>جاري استعادة الجلسة...</p></main>
   }
@@ -151,6 +168,10 @@ export default function App() {
 
   if (!profileActive) {
     return <main className="auth-page" dir="rtl"><section className="login-card"><h1>الحساب موقوف</h1><p>تم إيقاف هذا الحساب. تواصل مع مالك النظام إذا كنت تعتقد أن ذلك غير صحيح.</p><button className="primary-button" type="button" onClick={() => void handleSignOut()} disabled={signOutLoading}>{signOutLoading ? 'جاري تسجيل الخروج...' : 'العودة إلى تسجيل الدخول'}</button></section></main>
+  }
+
+  if (mustChangePassword) {
+    return <PasswordChangePage onChanged={refreshProfileAccess} onSignOut={handleSignOut} />
   }
 
   const isWorkspaceView = activeView === 'workspace' || activeView === 'pillars' || activeView === 'pillarDetail'

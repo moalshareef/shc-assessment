@@ -1,7 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient, type SupabaseClient, type User } from 'npm:@supabase/supabase-js@2.110.3'
 
-type Action = 'list_users' | 'invite_user' | 'suspend_user' | 'activate_user'
+type Action = 'list_users' | 'create_user' | 'invite_user' | 'suspend_user' | 'activate_user' | 'change_own_password'
 
 const DEFAULT_ORIGINS = [
   'https://vhoho.github.io',
@@ -39,15 +39,18 @@ function secretKey() {
   return legacy
 }
 
-async function assertSystemOwner(admin: SupabaseClient, token: string) {
+async function authenticatedUser(admin: SupabaseClient, token: string) {
   const { data: authData, error: authError } = await admin.auth.getUser(token)
   if (authError || !authData.user) throw Object.assign(new Error('انتهت الجلسة أو أنها غير صالحة.'), { status: 401 })
+  return authData.user
+}
 
+async function assertSystemOwner(admin: SupabaseClient, actor: User) {
   const now = new Date().toISOString()
   const { data, error } = await admin
     .from('platform_role_assignments')
     .select('id, profiles!inner(is_active)')
-    .eq('user_id', authData.user.id)
+    .eq('user_id', actor.id)
     .eq('platform_role', 'system_owner')
     .eq('status', 'active')
     .eq('profiles.is_active', true)
@@ -57,7 +60,15 @@ async function assertSystemOwner(admin: SupabaseClient, token: string) {
     .limit(1)
   if (error) throw error
   if (!data?.length) throw Object.assign(new Error('لا تملك صلاحية مالك النظام.'), { status: 403 })
-  return authData.user
+  return actor
+}
+
+function validateStrongPassword(password: string) {
+  return password.length >= 12
+    && /[a-z]/.test(password)
+    && /[A-Z]/.test(password)
+    && /\d/.test(password)
+    && /[^A-Za-z0-9]/.test(password)
 }
 
 async function listAllAuthUsers(admin: SupabaseClient) {
@@ -121,7 +132,7 @@ async function auditProfile(admin: SupabaseClient, actorId: string, userId: stri
   if (error) throw error
 }
 
-async function inviteUser(admin: SupabaseClient, actor: User, payload: Record<string, unknown>) {
+async function validateNewUser(admin: SupabaseClient, payload: Record<string, unknown>) {
   const email = String(payload.email ?? '').trim().toLowerCase()
   const fullName = String(payload.full_name ?? '').trim()
   const organizationId = String(payload.primary_organization_id ?? '').trim()
@@ -134,6 +145,94 @@ async function inviteUser(admin: SupabaseClient, actor: User, payload: Record<st
   if (!organization) throw Object.assign(new Error('الجهة المحددة غير فعالة.'), { status: 400 })
   const existing = (await listAllAuthUsers(admin)).some((user) => user.email?.toLowerCase() === email)
   if (existing) throw Object.assign(new Error('البريد الإلكتروني مسجل مسبقًا.'), { status: 409 })
+  return { email, fullName, organizationId }
+}
+
+async function createUser(admin: SupabaseClient, actor: User, payload: Record<string, unknown>) {
+  const { email, fullName, organizationId } = await validateNewUser(admin, payload)
+  const temporaryPassword = String(payload.temporary_password ?? '')
+  if (!validateStrongPassword(temporaryPassword)) {
+    throw Object.assign(new Error('كلمة المرور المؤقتة يجب أن تتكون من 12 حرفًا على الأقل وتتضمن حرفًا كبيرًا وصغيرًا ورقمًا ورمزًا خاصًا.'), { status: 400 })
+  }
+
+  const { data: created, error: authError } = await admin.auth.admin.createUser({
+    email,
+    password: temporaryPassword,
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
+  })
+  if (authError || !created.user) throw Object.assign(new Error(authError?.message || 'تعذر إنشاء حساب المصادقة.'), { status: authError?.status === 422 ? 409 : 502 })
+
+  const user = created.user
+  try {
+    const { error: profileError } = await admin.from('profiles').upsert({
+      id: user.id,
+      full_name: fullName,
+      is_active: true,
+      must_change_password: true,
+      password_changed_at: null,
+    }, { onConflict: 'id' })
+    if (profileError) throw profileError
+
+    const { error: membershipError } = await admin.from('user_organizations').insert({
+      user_id: user.id,
+      organization_id: organizationId,
+      is_primary: true,
+      status: 'active',
+      created_by: actor.id,
+      updated_by: actor.id,
+    })
+    if (membershipError) throw membershipError
+
+    const { error: auditError } = await admin.from('audit_logs').insert({
+      actor_user_id: actor.id,
+      table_name: 'auth.users',
+      record_id: user.id,
+      action: 'INSERT',
+      old_data: null,
+      new_data: { email, email_confirmed: true, profile_active: true, must_change_password: true, primary_organization_id: organizationId },
+    })
+    if (auditError) throw auditError
+  } catch (error) {
+    await admin.from('profiles').update({ is_active: false }).eq('id', user.id)
+    await admin.auth.admin.updateUserById(user.id, { ban_duration: '876000h' })
+    throw Object.assign(new Error('أُنشئ حساب المصادقة لكن تعذر إكمال بيانات المنصة؛ أوقف الحساب تلقائيًا للمراجعة.'), { status: 500, partial: true, cause: error })
+  }
+
+  return { user_id: user.id, profile_status: 'active', status: 'created' }
+}
+
+async function changeOwnPassword(admin: SupabaseClient, actor: User, payload: Record<string, unknown>) {
+  const password = String(payload.new_password ?? '')
+  if (!validateStrongPassword(password)) {
+    throw Object.assign(new Error('كلمة المرور الجديدة يجب أن تتكون من 12 حرفًا على الأقل وتتضمن حرفًا كبيرًا وصغيرًا ورقمًا ورمزًا خاصًا.'), { status: 400 })
+  }
+
+  const { data: profile, error: profileError } = await admin.from('profiles').select('is_active, must_change_password').eq('id', actor.id).maybeSingle()
+  if (profileError) throw profileError
+  if (!profile?.is_active) throw Object.assign(new Error('الحساب غير فعال.'), { status: 403 })
+  if (!profile.must_change_password) throw Object.assign(new Error('لا يوجد تغيير إلزامي لكلمة المرور على هذا الحساب.'), { status: 409 })
+
+  const { error: authError } = await admin.auth.admin.updateUserById(actor.id, { password })
+  if (authError) throw Object.assign(new Error('تعذر تحديث كلمة المرور.'), { status: 502 })
+
+  const changedAt = new Date().toISOString()
+  const { error: updateError } = await admin.from('profiles').update({ must_change_password: false, password_changed_at: changedAt }).eq('id', actor.id).eq('must_change_password', true)
+  if (updateError) throw Object.assign(new Error('تم تحديث كلمة المرور لكن تعذر فتح الوصول إلى المنصة؛ أعد المحاولة.'), { status: 500, partial: true })
+  const { error: auditError } = await admin.from('audit_logs').insert({
+    actor_user_id: actor.id,
+    table_name: 'profiles',
+    record_id: actor.id,
+    action: 'UPDATE',
+    old_data: { must_change_password: true },
+    new_data: { must_change_password: false, password_changed_at: changedAt },
+  })
+  if (auditError) throw auditError
+  return { user_id: actor.id, status: 'password_changed' }
+}
+
+async function inviteUser(admin: SupabaseClient, actor: User, payload: Record<string, unknown>) {
+  const { email, fullName, organizationId } = await validateNewUser(admin, payload)
 
   const { data: invitation, error: invitationError } = await admin.from('user_invitations').insert({
     email_normalized: email,
@@ -207,11 +306,14 @@ Deno.serve(async (request) => {
     const token = authorization?.startsWith('Bearer ') ? authorization.slice(7) : ''
     if (!token) return json(origin, 401, { error: 'missing_session', message: 'الجلسة مطلوبة.' })
     const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', secretKey(), { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
-    const actor = await assertSystemOwner(admin, token)
+    const actor = await authenticatedUser(admin, token)
     const body = await request.json() as Record<string, unknown>
     const action = String(body.action ?? '') as Action
 
+    if (action === 'change_own_password') return json(origin, 200, { result: await changeOwnPassword(admin, actor, body) })
+    await assertSystemOwner(admin, actor)
     if (action === 'list_users') return json(origin, 200, { users: await listUsers(admin) })
+    if (action === 'create_user') return json(origin, 200, { result: await createUser(admin, actor, body) })
     if (action === 'invite_user') return json(origin, 200, { result: await inviteUser(admin, actor, body) })
     if (action === 'suspend_user') return json(origin, 200, { result: await changeUserActivation(admin, actor, body, false) })
     if (action === 'activate_user') return json(origin, 200, { result: await changeUserActivation(admin, actor, body, true) })

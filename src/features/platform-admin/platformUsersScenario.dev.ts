@@ -1,5 +1,5 @@
 import { createPlatformUsersApi, type PlatformUserAdminInvoker } from './platformUsersApi'
-import { validatePlatformUserEmail, validatePlatformUserName, validatePrimaryOrganization, validateSuspensionReason } from './platformUsersModel'
+import { validatePlatformUserEmail, validatePlatformUserName, validatePrimaryOrganization, validateSuspensionReason, validateTemporaryPassword } from './platformUsersModel'
 
 interface Result { check: string; passed: boolean }
 function assert(value: boolean, check: string, results: Result[]) {
@@ -10,6 +10,7 @@ function assert(value: boolean, check: string, results: Result[]) {
 export async function runDevelopmentPlatformUsersScenario() {
   const results: Result[] = []
   const calls: Record<string, unknown>[] = []
+  const generatedStrongPassword = `Aa1!${crypto.randomUUID()}`
   const invoke: PlatformUserAdminInvoker = async (body) => {
     calls.push(body)
     if (body.action === 'list_users') return { data: { users: [] }, error: null }
@@ -23,6 +24,8 @@ export async function runDevelopmentPlatformUsersScenario() {
   assert(validatePlatformUserName('') !== null, 'إلزام الاسم الكامل.', results)
   assert(validatePrimaryOrganization('') !== null, 'إلزام الجهة الأساسية.', results)
   assert(validateSuspensionReason('') !== null, 'إلزام سبب الإيقاف.', results)
+  assert(validateTemporaryPassword('weak') !== null, 'رفض كلمة المرور الضعيفة.', results)
+  assert(validateTemporaryPassword(generatedStrongPassword) === null, 'قبول كلمة المرور القوية.', results)
 
   await owner.listUsers()
   assert(calls[calls.length - 1]?.action === 'list_users', 'القراءة عبر Edge Function.', results)
@@ -30,6 +33,11 @@ export async function runDevelopmentPlatformUsersScenario() {
   assert(calls[calls.length - 1]?.action === 'invite_user', 'الدعوة عبر Edge Function.', results)
   assert(calls[calls.length - 1]?.email === 'user@example.com', 'تطبيع البريد.', results)
   assert(!('platform_role' in calls[calls.length - 1]), 'عدم منح دور تلقائي.', results)
+  await owner.createUser({ email: ' NEW@EXAMPLE.COM ', fullName: ' مستخدم جديد ', primaryOrganizationId: 'org-1', temporaryPassword: generatedStrongPassword })
+  const createCall = calls[calls.length - 1]
+  assert(createCall?.action === 'create_user', 'الإنشاء عبر Edge Function.', results)
+  assert(createCall?.email === 'new@example.com', 'تطبيع بريد الإنشاء.', results)
+  assert(!('platform_role' in createCall), 'عدم منح دور منصي أو صلاحية موديل عند الإنشاء.', results)
   await owner.suspendUser('user-1', 'سبب معتمد')
   assert(calls[calls.length - 1]?.action === 'suspend_user', 'الإيقاف دون حذف.', results)
   await owner.activateUser('user-1')
@@ -39,7 +47,7 @@ export async function runDevelopmentPlatformUsersScenario() {
   let denied = false
   try { await normal.listUsers() } catch { denied = true }
   assert(denied && calls.length === before, 'رفض المستخدم غير المالك قبل استدعاء الوظيفة.', results)
-  assert(calls.every((call) => ['list_users', 'invite_user', 'suspend_user', 'activate_user'].includes(String(call.action))), 'عدم وجود Auth Admin أو كتابة جدول مباشرة من الواجهة.', results)
+  assert(calls.every((call) => ['list_users', 'create_user', 'invite_user', 'suspend_user', 'activate_user'].includes(String(call.action))), 'عدم وجود Auth Admin أو كتابة جدول مباشرة من الواجهة.', results)
   return results
 }
 

@@ -100,8 +100,21 @@
   opacity: .7;
 }
 
+.auth-hint {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.auth-secondary {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--blue-dark);
+  font-weight: 700;
+}
+
 @media (max-width: 560px) {
   .auth-page { padding: 16px; }
   .auth-card { padding: 26px 20px; }
 }
-
