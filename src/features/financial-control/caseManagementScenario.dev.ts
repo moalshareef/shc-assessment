@@ -42,6 +42,8 @@ export function runDevelopmentCaseScenario(): DevelopmentScenarioStep[] {
     workflowStatus: 'imported_pending_review',
     currentDueDate: '2026-07-20',
     progress: 0,
+    correctiveActionStatuses: ['not_started'],
+    documentReferenceStatuses: [],
     openActionDueDates: [],
     sentEmailDates: [],
     officialReplyDates: [],
@@ -54,6 +56,19 @@ export function runDevelopmentCaseScenario(): DevelopmentScenarioStep[] {
     assert(caseWorkQueues(snapshot, TEST_NOW).includes('needs_start'), 'إدراج الملاحظة في تحتاج بدء المتابعة.'),
     assert(!caseWorkQueues(snapshot, TEST_NOW).includes('needs_action_today'), 'عدم اعتبار غير المبدوءة مستحقة اليوم.'),
     assert(caseWorkQueues({ ...snapshot, openActionDueDates: ['2026-07-15'] }, TEST_NOW).includes('needs_action_today'), 'إدراج الملاحظة فقط عند وجود إجراء تصحيحي مفتوح مستحق اليوم.'),
+  ]))
+
+  const legacyCompleteSnapshot: CaseSnapshot = {
+    ...snapshot,
+    progress: 100,
+    sentEmailDates: ['2026-07-15T09:00:00+03:00'],
+    officialReplyDates: ['2026-07-15T10:00:00+03:00'],
+    lastActivityAt: '2026-07-15T11:00:00+03:00',
+  }
+  results.push(snapshotStep('إنجاز 100% مع حالة تقنية قديمة', legacyCompleteSnapshot, [
+    assert(nextCaseAction(legacyCompleteSnapshot, ['action_owner']).code === 'verify_corrective_actions', 'اشتراط إرسال الإجراء للمدير رغم وصول الإنجاز إلى 100%.'),
+    assert(!caseWorkQueues(legacyCompleteSnapshot, TEST_NOW).includes('ready_to_submit'), 'عدم إدراج الإجراء غير المتحقق في جاهزة للرفع.'),
+    assert(nextCaseAction(legacyCompleteSnapshot, ['viewer']).code === 'readonly', 'إبقاء المطلع في وضع القراءة فقط.'),
   ]))
 
   snapshot.sentEmailDates.push('2026-07-15T09:00:00+03:00')
@@ -76,6 +91,7 @@ export function runDevelopmentCaseScenario(): DevelopmentScenarioStep[] {
 
   snapshot.workflowStatus = 'in_progress'
   snapshot.progress = 45
+  snapshot.correctiveActionStatuses = ['in_progress']
   snapshot.lastActivityAt = '2026-07-15T10:30:00+03:00'
   results.push(snapshotStep('تحديث تقدم', snapshot, [
     assert(caseWorkflowStage(snapshot) === 2, 'تحريك الشريط إلى مرحلة التنفيذ.'),
@@ -85,9 +101,17 @@ export function runDevelopmentCaseScenario(): DevelopmentScenarioStep[] {
   snapshot.progress = 100
   snapshot.lastActivityAt = '2026-07-15T11:00:00+03:00'
   results.push(snapshotStep('إنجاز 100%', snapshot, [
-    assert(nextCaseAction(snapshot, [...roles]).code === 'submit_to_manager', 'اقتراح الرفع للمدير دون إغلاق تلقائي.'),
-    assert(caseWorkQueues(snapshot, TEST_NOW).includes('ready_to_submit'), 'نقل الملاحظة إلى جاهزة للرفع.'),
+    assert(nextCaseAction(snapshot, [...roles]).code === 'verify_corrective_actions', 'اقتراح إرسال الإجراء للتحقق بدل الرفع المباشر.'),
+    assert(!caseWorkQueues(snapshot, TEST_NOW).includes('ready_to_submit'), 'عدم النقل إلى جاهزة للرفع قبل التحقق.'),
     assert(validateCaseTransition('in_progress', 'closed') === 'لا يمكن الإغلاق قبل اعتماد المدير.', 'منع الإغلاق قبل الاعتماد.'),
+  ]))
+
+  snapshot.correctiveActionStatuses = ['submitted_for_manager_review']
+  snapshot.documentReferenceStatuses = ['pending']
+  snapshot.lastActivityAt = '2026-07-15T11:10:00+03:00'
+  results.push(snapshotStep('تحقق المختص من الإجراء', snapshot, [
+    assert(nextCaseAction(snapshot, ['action_owner']).code === 'submit_to_manager', 'إظهار رفع الملاحظة بعد إرسال جميع الإجراءات للمدير.'),
+    assert(caseWorkQueues(snapshot, TEST_NOW).includes('ready_to_submit'), 'نقل الملاحظة إلى جاهزة للرفع بعد إرسال الإجراءات.'),
   ]))
 
   snapshot.workflowStatus = 'submitted_for_manager_review'
@@ -105,10 +129,11 @@ export function runDevelopmentCaseScenario(): DevelopmentScenarioStep[] {
     assert(missingReturnReason === 'السبب إلزامي للإعادة أو إعادة الفتح.', 'منع الإعادة عند غياب السبب.'),
     assert(validateCaseTransition('under_manager_review', 'returned_for_revision', 'استكمال التوثيق') === null, 'قبول الإعادة عند إدخال السبب.'),
     assert(caseWorkQueues(snapshot, TEST_NOW).includes('returned'), 'نقل الملاحظة إلى معادة من المدير.'),
-    assert(nextCaseAction(snapshot, [...roles]).code === 'complete_return_requirements', 'اقتراح استكمال المطلوب.'),
+    assert(nextCaseAction(snapshot, [...roles]).code === 'submit_to_manager', 'اقتراح إعادة الرفع بعد استكمال الملاحظة بنسبة 100%.'),
   ]))
 
   snapshot.workflowStatus = 'under_manager_review'
+  snapshot.documentReferenceStatuses = ['approved']
   snapshot.lastActivityAt = '2026-07-15T11:45:00+03:00'
   const statusBeforeApproval: FinancialControlFindingStatus = snapshot.workflowStatus
   assert(statusBeforeApproval === 'under_manager_review', 'إعادة الرفع ووصول الملاحظة إلى مراجعة المدير قبل الاعتماد.')
@@ -131,7 +156,7 @@ export function runDevelopmentCaseScenario(): DevelopmentScenarioStep[] {
     assert(missingReopenReason === 'السبب إلزامي للإعادة أو إعادة الفتح.', 'منع إعادة الفتح عند غياب السبب.'),
     assert(validateCaseTransition('closed', 'reopened', 'ظهور متطلب جديد') === null, 'قبول إعادة الفتح عند إدخال السبب.'),
     assert(caseWorkflowStage(snapshot) === 2, 'إعادة شريط المراحل إلى التنفيذ بعد الفتح.'),
-    assert(nextCaseAction(snapshot, [...roles]).label === 'استكمال المتابعة بعد إعادة الفتح', 'اقتراح استكمال المتابعة بعد إعادة الفتح.'),
+    assert(nextCaseAction(snapshot, [...roles]).code === 'submit_to_manager', 'اقتراح الرفع بعد إعادة الفتح ما دام الإنجاز 100% ولم ترفع للمدير.'),
   ]))
 
   assert(supabaseCalls === 0, 'عدم تنفيذ أي استدعاء إلى Supabase.')

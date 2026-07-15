@@ -19,7 +19,7 @@
 - الحذف التشغيلي المقترح soft delete أو إلغاء، مع `archived_at` و`archived_by` وسبب.
 - الحقول الرسمية والتشغيلية منفصلة.
 - يحفظ `assessment_rating` منفصلًا عن `workflow_status` ولا تستخدم قيم أحدهما في الآخر.
-- أدوار Workspace النهائية: `specialist` و`action_owner` و`manager` و`owner` و`viewer`.
+- الأدوار التشغيلية لدورة التنفيذ والقرار: `action_owner` للموظف المسند و`manager` للمدير؛ ويبقى `owner/viewer` للاطلاع أو التصعيد وفق النطاق.
 - `system_admin` دور عام داخل `profiles` ولا يمنح اعتماد الملاحظات.
 - يسمح بأكثر من `corrective_action` للملاحظة، ولكل إجراء مسؤول واستحقاق وإنجاز وحالة وأدلة مستقلة.
 - الاسم الرسمي للوحدة المالية هو «إدارة الشؤون المالية»، وتحفظ المسميات القديمة كaliases للاستيراد.
@@ -35,6 +35,7 @@
 - `financial_control_findings`.
 - `financial_control_finding_versions`.
 - `corrective_actions`.
+- `corrective_action_document_references` — مقترح غير منفذ.
 - `finding_assignments`.
 - `finding_comments`.
 - `finding_messages`.
@@ -45,13 +46,13 @@
 - `escalations`.
 - `approvals`.
 
-المجموع **16 جدولًا جديدًا**. ترتبط بالنواة الحالية: `workspaces` و`profiles` و`departments`، وتستخدم `audit_logs` المشترك دون تعديله. يبقى `workspace_members` قائمًا دون تعديل أو تغيير قيد أدواره.
+المجموع **17 جدولًا** عند اعتماد جدول المستندات المرجعية المقترح. ترتبط بالنواة الحالية: `workspaces` و`profiles` و`departments`، وتستخدم `audit_logs` المشترك دون تعديله. يبقى `workspace_members` قائمًا دون تعديل أو تغيير قيد أدواره.
 
 ### 3.0A `financial_control_members`
 
 **الغرض:** فصل أدوار الرقابة المالية المتخصصة عن قيد `workspace_members.role` القائم.
 
-**الحقول الأساسية:** `id uuid` PK، و`workspace_id uuid` FK إلى `workspaces.id`، و`user_id uuid` FK إلى `profiles.id`، و`role text` محصور في `owner/manager/specialist/action_owner/viewer`، و`is_active`، و`starts_at/ends_at`، و`created_by`، وحقول الإنشاء والتحديث.
+**الحقول الأساسية:** `id uuid` PK، و`workspace_id uuid` FK إلى `workspaces.id`، و`user_id uuid` FK إلى `profiles.id`، و`role text`، و`is_active`، و`starts_at/ends_at`، و`created_by`، وحقول الإنشاء والتحديث. تستخدم الدورة التشغيلية الجديدة `action_owner/manager` فقط، مع بقاء أدوار الاطلاع والتصعيد منفصلة.
 
 **القيود:** فريد على `(workspace_id, user_id, role)`، ولا يعدل `workspace_members` أو يستنتج دورًا من `user_metadata`.
 
@@ -197,7 +198,7 @@
 - `responsible_profile_id uuid` — FK إلى `profiles.id`، وهو `action_owner` للإجراء وnullable حتى الإسناد.
 - `official_due_date date`.
 - `current_due_date date`.
-- `workflow_status text` — حالة الإجراء المستقلة عن حالة الملاحظة.
+- `workflow_status text` — `not_started/in_progress/submitted_for_manager_review/completed` في الدورة المقترحة.
 - `progress_percent numeric(5,2)`.
 - `completion_summary text`، `completed_at timestamptz`.
 - `version_no integer`، `lock_version integer`.
@@ -206,7 +207,7 @@
 
 **القيود:** Unique على `(finding_id, action_no)`، ونطاق الإنجاز 0–100.
 
-- لا يسمح بإغلاق الملاحظة إلا إذا كانت جميع إجراءاتها `completed` ونسبة كل منها 100% وأدلتها مقبولة.
+- لا يسمح باعتماد الملاحظة إذا وجد مستند مرجعي `pending` أو `rejected`؛ وعند الاعتماد تحول الإجراءات المقدمة إلى `completed` ذريًا.
 - كل مرفق من النوع `evidence` يجب أن يحمل `corrective_action_id`.
 
 **التدقيق/versioning:** النص الرسمي والمسؤول الرسمي والاستحقاق الرسمي؛ وكل تغيير معتمد على الخطة أو تاريخها.
@@ -224,7 +225,7 @@
 - `profile_id uuid` — FK إلى `profiles.id`.
 - `user_id uuid` — FK إلى `profiles.id`، مع التحقق من عضويته النشطة في `financial_control_members`.
 - `unit_id uuid` — FK إلى الوحدة التنظيمية المعتمدة، nullable.
-- `assignment_role text` — `specialist` أو `action_owner`؛ أما صلاحيات `manager` و`owner` و`viewer` فتأتي من عضوية Workspace.
+- `assignment_role text` — `action_owner` للموظف المسند؛ أما صلاحيات `manager` و`owner` و`viewer` فتأتي من عضوية Workspace.
 - `starts_at timestamptz`، `ends_at timestamptz`.
 - `is_primary boolean`.
 - `assigned_by uuid` — FK إلى `profiles.id`.
@@ -499,17 +500,17 @@
 - لا يكفي `TO authenticated` وحده؛ يجب إضافة شرط العضوية والدور ونطاق السجل.
 - سياسات `update` تحتاج `USING` و`WITH CHECK` لمنع تغيير `workspace_id` أو الإسناد خارج النطاق.
 - مسؤول الإجراء يرى ويحدث السجلات المرتبطة به أو بوحدته فقط وفق قرار المالك.
-- الموظف المختص يحدث السجلات المسندة إليه، بينما المدير يرى نطاق فريقه أو المساحة حسب السياسة.
+- الموظف المسند يحدث إجراءاته ومراجعها فقط، بينما المدير يرى نطاق المساحة ويملك قرارات المراجعة.
 - المعتمد وحده يكتب قرارات الاعتماد والإغلاق وإعادة الفتح النهائية.
 - مدير النظام يدير الإعداد والعضويات والاستيراد، ولا تمنحه RLS صلاحية اعتماد تلقائية.
 - النصوص الرسمية لا تحدث عبر سياسة عامة؛ تحتاج مسار تصحيح بإصدار واعتماد.
 - جداول التاريخ تمنع `update/delete` للمستخدمين، ويستخدم التدقيق جدول `audit_logs` المركزي دون جدول مكرر.
-- `specialist` يتابع ويراجع ويرسل للمدير، و`action_owner` يحدث إجراءه ويرفع أدلته فقط.
+- `action_owner` ينفذ الإجراء ويسجل المراجع ويرفع الملاحظة مباشرة للمدير، و`manager` يراجع ويعتمد أو يعيد.
 - `manager` وحده يعيد الملاحظة ويعتمدها ويغلقها ويعيد فتحها ويقرر التمديد.
 - `owner` للقراءة والتقارير وإدارة التصعيد، وليس حلقة اعتماد إلزامية.
 - `viewer` للقراءة فقط دون تصدير.
 - `system_admin` العام ينفذ الاستيراد والنسخ الاحتياطي والاستعادة دون اعتماد الملاحظات.
-- تصدير PDF وExcel مسموح فقط لأعضاء Workspace بأدوار `specialist` أو `manager` أو `owner`.
+- تصدير PDF وExcel مسموح للموظف ضمن نطاق إجراءاته، ولـ`manager` و`owner` ضمن نطاق Workspace.
 - النسخ الاحتياطي والاستعادة محصورتان في `system_admin` عبر مسار إداري موثوق، لا من صلاحيات العميل العامة.
 - لا تستخدم `user_metadata` في قرارات التفويض. مصدر الدور هو العضوية/البيانات المؤسسية المعتمدة.
 - لا يستخدم `service_role` أو secret key في تطبيق React العام.
@@ -563,7 +564,7 @@
 - إنشاء سجل المصدر الرسمي والمرجع الوظيفي.
 - إدخال 33 ملاحظة و33 خطة تصحيحية على الأقل داخل Workspace الصحيح.
 - بدء جميع السجلات الـ33 بالحالة `imported_pending_review`، واسمها العربي «مستورد – بانتظار المراجعة».
-- الانتقال إلى `not_started` لا يتم إلا بعد مراجعة `specialist` أو `manager` وحل فروقات الاستيراد واستكمال الإسناد.
+- الانتقال إلى `not_started` لا يتم إلا بعد مراجعة `manager` لفروقات الاستيراد واستكمال إسناد الإجراءات.
 - لا تنشأ مستخدمون أو إسنادات شخصية وهمية للحقول الفارغة في HTML.
 - ربط الوحدات الرسمية، ثم الإسنادات الفعلية من أعضاء Workspace.
 - يسمح بإنشاء أكثر من `corrective_action` للملاحظة وفق المطابقة الرسمية والتجزئة المعتمدة، ولكل إجراء مسؤول واستحقاق وإنجاز وحالة وأدلة مستقلة.
@@ -599,7 +600,7 @@
 
 ## 10. القرارات التصميمية المعتمدة في هذه المرحلة
 
-- أدوار Workspace: `specialist` و`action_owner` و`manager` و`owner` و`viewer`.
+- الأدوار التشغيلية: `action_owner` للموظف و`manager` للمدير؛ و`owner/viewer` أدوار اطلاع أو تصعيد خارج مسار القرار.
 - `system_admin` دور عام في `profiles`، للعمليات الإدارية والنسخ والاستعادة، ولا يعتمد الملاحظات.
 - `manager` يعيد للتعديل ويعتمد ويغلق ويوافق على التمديد ويعيد الفتح بسبب إلزامي.
 - `owner` للاطلاع والتصعيد، وليس اعتمادًا إلزاميًا لكل ملاحظة.
@@ -608,7 +609,7 @@
 - الاسم الرسمي «إدارة الشؤون المالية»، والمسميات القديمة aliases للاستيراد.
 - `audit_logs` المشترك هو سجل التدقيق المركزي الدائم؛ لا ينشأ جدول مكرر، وتكتب فيه RPCs القيم السابقة والجديدة والمستخدم والوقت والسبب ذريًا.
 - المرفقات في Supabase Storage خاص، عبر Signed URLs، مع Versioning ودون حذف تلقائي قبل سياسة الاحتفاظ.
-- تصدير PDF وExcel لأدوار `specialist` و`manager` و`owner` فقط.
+- تصدير PDF وExcel للموظف ضمن نطاق إجراءاته، ولـ`manager` و`owner` ضمن نطاق Workspace.
 - النسخ الاحتياطي والاستعادة لـ`system_admin` فقط.
 - حالة السجلات الـ33 بعد الاستيراد `imported_pending_review` — «مستورد – بانتظار المراجعة».
 - `assessment_rating` بقيمتي «شبه فعال/غير موجود» منفصل عن `workflow_status`.
@@ -643,3 +644,78 @@
 - وصف التقدم والعوائق يخزنان نصيًا داخل `corrective_actions.execution_details` بصيغة واضحة، دون إضافة حقول جديدة في هذه المرحلة.
 - الصور المرجعية أصول تطبيق ثابتة وليست مرفقات ولا تحفظ في Supabase أو داخل حقول Base64.
 - لا تستخدم `finding_attachments` في النسخة الأولى، ولا توجد واجهة رفع ملفات.
+
+### 12.2 مقترح مستندات الإجراء المرجعية — غير منفذ
+
+يقترح، بعد اعتماد Migration مستقلة، جدولًا وصفيًا باسم مبدئي `corrective_action_document_references`. لا يخزن الجدول ملفًا أو Base64 أو رابطًا عامًا؛ بل يربط الإجراء التصحيحي بمرجع مستند محفوظ أصلًا في قناة مؤسسية.
+
+**الحقول المقترحة:**
+
+- `id uuid` — مفتاح أساسي.
+- `workspace_id uuid` — FK إلى `workspaces.id`.
+- `finding_id uuid` — FK إلى `financial_control_findings.id`.
+- `corrective_action_id uuid` — FK إلزامي إلى `corrective_actions.id`.
+- `document_number text` — رقم المستند.
+- `document_name text` — اسم المستند.
+- `document_type text` — نوعه.
+- `document_date date` — تاريخه.
+- `issuing_entity text` — الجهة المصدرة.
+- `storage_location text` — محصور في `share_folder/official_email/internal_system/other`.
+- `location_reference text` — المسار أو المرجع المؤسسي، دون رابط وصول عام.
+- `description text` — وصف مختصر غير حساس.
+- `manager_verification_status text` — محصور في `pending/approved/rejected`.
+- `manager_decision_note text` — إلزامي عند `rejected` فقط، واختياري عند `approved`.
+- `manager_verified_by uuid` — FK إلى `profiles.id`، ويجب أن يكون مديرًا مخولًا وقت القرار.
+- `manager_verified_at timestamptz`.
+- `created_by uuid` — FK إلى `profiles.id`، ويجب أن يطابق الموظف المسند إليه الإجراء.
+- `created_at timestamptz`، `updated_at timestamptz`، `lock_version integer`.
+
+**العلاقات والقيود المقترحة:**
+
+- `corrective_actions` 1 ← N `corrective_action_document_references`.
+- تطابق `workspace_id/finding_id/corrective_action_id` إلزامي ويحمى بمفتاح أجنبي مركب.
+- الموظف المسند إليه الإجراء وحده ينشئ المرجع ويعدله ويحذفه قبل الرفع، أو بعد إعادة الملاحظة رسميًا.
+- تقفل مراجع الملاحظة على الموظف في حالتي `submitted_for_manager_review` و`under_manager_review`، وكذلك بعد الاعتماد والإغلاق.
+- المدير وحده يكتب قرار التحقق؛ لا يثق RPC في دور يرسله العميل، بل يقرأ العضوية الفعلية ونطاق الملاحظة.
+- سبب الرفض إلزامي، وملاحظة الاعتماد اختيارية، ويكتب القرار والقيم السابقة والجديدة في `audit_logs` ذريًا.
+- لا تعتمد الملاحظة إذا كان أي مرجع مطلوب `pending` أو `rejected`.
+- لا ينفذ العميل تحديث حالة التحقق مباشرة؛ يقترح RPC ذري مستقل لقرار المدير مع `lock_version`.
+
+**المسار التشغيلي:** الموظف المسند ينفذ ويسجل المراجع ← يرفع الملاحظة للمدير ← المدير يراجع كل مرجع ويعتمده بملاحظة اختيارية أو يرفضه بسبب إلزامي ← عند الرفض تعاد الملاحظة للموظف ← بعد استيفاء المراجع يعتمد المدير الملاحظة ثم يغلقها.
+
+هذا التصميم ممثل في ثلاث مسودات مستقلة وغير مطبقة: Schema، وRPCs للكتابة، ومسار الموظف ثم المدير. لا تعد أي منها تصريحًا بالتطبيق.
+
+### 12.3 تعديلات RPC المقترحة لإلغاء الطرف الوسيط — غير منفذة
+
+#### `financial_control_transition_action`
+
+- تبقى التوقيعات الحالية ومعالجة `lock_version` وHistory و`audit_logs`.
+- تحصر انتقالات الموظف المسند في `not_started → in_progress → submitted_for_manager_review`.
+- يتطلب الانتقال إلى `submitted_for_manager_review`: أن يكون المنفذ هو `responsible_user_id` وله عضوية `action_owner` نشطة، وأن تكون النسبة 100%، وتوجد تفاصيل تنفيذ ومرجع مستند واحد على الأقل.
+- تحذف فروع حالات المراجعة الوسيطة من منطق السماح بعد اعتماد Migration الحالات المنفصلة.
+- لا يمنح `manager` انتقال الموظف؛ انتقالات المدير على الإجراءات تنفذ تبعًا لقرار الملاحظة في المعاملة نفسها.
+
+#### `financial_control_transition_finding`
+
+- يسمح للموظف المسند برفع الملاحظة `in_progress → submitted_for_manager_review` فقط إذا كانت جميع إجراءاتها `submitted_for_manager_review`.
+- ينفذ المدير `submitted_for_manager_review → under_manager_review`.
+- عند `under_manager_review → returned_for_revision` يكون السبب إلزاميًا، وتعود الإجراءات المقدمة إلى `in_progress` ذريًا مع تاريخ وتدقيق لكل إجراء.
+- عند `under_manager_review → approved` يرفض RPC القرار إذا وجد أي مرجع `pending` أو `rejected`، ثم يحول الإجراءات المقدمة إلى `completed` ذريًا مع تاريخ وتدقيق.
+- يبقى `approved → closed` للمدير، ولا تسمح نسبة الإنجاز وحدها بالاعتماد أو الإغلاق.
+
+#### RPCs المستندات المرجعية الجديدة
+
+- `financial_control_add_document_reference(...)`: يستخرج نطاق الإجراء من قاعدة البيانات، ويتحقق من الموظف المسند وحالة الملاحظة، ثم يضيف المرجع ويسجل `audit_logs`.
+- `financial_control_update_document_reference(..., integer)`: يعدل الحقول الوصفية فقط، ويتطلب `expected_lock_version` مطابقًا، ويعيد قرار المرجع إلى `pending` بعد الإرجاع عند تعديل الموظف.
+- `financial_control_decide_document_reference(uuid, text, text, integer)`: قرار المدير؛ سبب الرفض إلزامي وملاحظة الاعتماد اختيارية.
+- `financial_control_delete_document_reference(uuid, integer)`: حذف الموظف المسند قبل الرفع أو بعد الإرجاع، مع فحص `lock_version`.
+- لا توجد منحة `UPDATE` أو `INSERT` أو `DELETE` مباشرة إلى `authenticated`. تمنح له قراءة الصفوف المسموحة وتنفيذ RPCs العامة الأربع فقط، وتبقى سياسات الإدخال والحذف دفاعًا إضافيًا.
+- كل RPC كتابة يسجل القيم السابقة والجديدة، أو قيمة الإدخال/الحذف، في `audit_logs` داخل المعاملة نفسها.
+
+### 12.4 أثر مقترح الحالات على البيانات الحالية
+
+- `not_started` و`in_progress` متوافقتان مباشرة مع الدورة الجديدة ولا تحتاجان Mapping.
+- تضاف `submitted_for_manager_review` إلى قيد حالات `corrective_actions` قبل تفعيل RPC الجديد.
+- يجب إيقاف التنفيذ إذا وجدت إجراءات في حالات الدورة الوسيطة القديمة، وإنتاج تقرير Mapping واعتماده بدل تحويلها تلقائيًا.
+- لا تنفذ الحزمة أي إسناد تلقائي أو Data Migration. المدير يحدد `responsible_user_id` لكل إجراء وفق الصلاحيات المعتمدة، ويبقى الإجراء غير المسند غير قابل للانتقال أو إضافة المراجع.
+- ترتيب التطبيق المقترح بعد الموافقة: `financial_control_document_references_schema_draft.sql` ثم `financial_control_document_references_rpc_draft.sql` ثم `financial_control_manager_workflow_draft.sql`.

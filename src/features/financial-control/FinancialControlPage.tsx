@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Icon } from '../../components/layout/Header'
 import type { IconName } from '../../components/layout/Header'
 import { FindingUpdatePanel } from './FindingUpdatePanel'
+import { DocumentReferencesSection } from './DocumentReferencesSection'
 import type { FindingUpdateKind } from './FindingUpdatePanel'
 import { formatArabicDate, formatArabicDateTime } from './dateFormat'
 import {
@@ -18,7 +19,7 @@ import {
   getFinancialControlDashboard,
   transitionFinancialControlAction,
   transitionFinancialControlFinding,
-  updateCorrectiveActionProgress,
+  updateCorrectiveActionProgressAndStart,
 } from '../../services/financialControlService'
 import type {
   CorrectiveActionStatus,
@@ -47,11 +48,7 @@ const statusLabels: Record<FinancialControlFindingStatus, string> = {
 const actionStatusLabels: Record<CorrectiveActionStatus, string> = {
   not_started: 'لم يبدأ',
   in_progress: 'قيد التنفيذ',
-  blocked: 'متعثر',
-  submitted_for_specialist_review: 'مرسل لمراجعة المختص',
-  under_specialist_review: 'تحت مراجعة المختص',
-  returned_for_revision: 'معاد للتعديل',
-  specialist_verified: 'تحقق منه المختص',
+  submitted_for_manager_review: 'مرسل لمراجعة المدير',
   completed: 'مكتمل',
 }
 
@@ -79,7 +76,7 @@ if (import.meta.env.DEV) {
 interface SuggestedFindingAction {
   label: string
   reason: string
-  kind: 'update' | 'transition' | 'readonly'
+  kind: 'update' | 'transition' | 'guidance' | 'readonly'
   updateKind?: FindingUpdateKind
   transition?: FindingTransitionOption
 }
@@ -97,9 +94,9 @@ interface ActionTransitionOption {
 }
 
 const findingTransitions: Partial<Record<FinancialControlFindingStatus, FindingTransitionOption[]>> = {
-  imported_pending_review: [{ to: 'not_started', label: 'بدء المتابعة', roles: ['owner', 'specialist', 'manager'] }],
-  not_started: [{ to: 'in_progress', label: 'نقل إلى قيد التنفيذ', roles: ['owner', 'specialist', 'manager'] }],
-  in_progress: [{ to: 'submitted_for_manager_review', label: 'إرسال لمراجعة المدير', roles: ['owner', 'specialist'] }],
+  imported_pending_review: [{ to: 'in_progress', label: 'بدء المتابعة', roles: ['action_owner'] }],
+  not_started: [{ to: 'in_progress', label: 'نقل إلى قيد التنفيذ', roles: ['action_owner'] }],
+  in_progress: [{ to: 'submitted_for_manager_review', label: 'إرسال لمراجعة المدير', roles: ['action_owner'] }],
   submitted_for_manager_review: [{ to: 'under_manager_review', label: 'بدء مراجعة المدير', roles: ['owner', 'manager'] }],
   under_manager_review: [
     { to: 'returned_for_revision', label: 'إرجاع للتعديل', roles: ['owner', 'manager'] },
@@ -110,19 +107,8 @@ const findingTransitions: Partial<Record<FinancialControlFindingStatus, FindingT
 }
 
 const actionTransitions: Partial<Record<CorrectiveActionStatus, ActionTransitionOption[]>> = {
-  not_started: [{ to: 'in_progress', label: 'بدء تنفيذ الإجراء', roles: ['owner', 'specialist', 'action_owner'] }],
-  in_progress: [{ to: 'submitted_for_specialist_review', label: 'إرسال لمراجعة المختص', roles: ['owner', 'action_owner'] }],
-  submitted_for_specialist_review: [{ to: 'under_specialist_review', label: 'بدء مراجعة المختص', roles: ['owner', 'specialist'] }],
-  under_specialist_review: [
-    { to: 'returned_for_revision', label: 'إرجاع للتعديل', roles: ['owner', 'specialist'] },
-    { to: 'specialist_verified', label: 'اعتماد المختص', roles: ['owner', 'specialist'] },
-  ],
-  returned_for_revision: [{
-    to: 'submitted_for_specialist_review',
-    label: 'إعادة إرسال الإجراء للمختص بعد التعديل',
-    roles: ['owner', 'action_owner'],
-  }],
-  specialist_verified: [{ to: 'completed', label: 'إكمال الإجراء', roles: ['owner', 'specialist'] }],
+  not_started: [{ to: 'in_progress', label: 'بدء تنفيذ الإجراء', roles: ['action_owner'] }],
+  in_progress: [{ to: 'submitted_for_manager_review', label: 'إرسال الإجراء للمدير', roles: ['action_owner'] }],
 }
 
 const controlStyle = {
@@ -165,6 +151,10 @@ function toCaseSnapshot(finding: FinancialControlFinding): CaseSnapshot {
     workflowStatus: finding.workflow_status,
     currentDueDate: finding.current_due_date,
     progress: findingProgress(finding),
+    correctiveActionStatuses: finding.corrective_actions.map((action) => action.workflow_status),
+    documentReferenceStatuses: finding.corrective_actions.flatMap((action) =>
+      action.document_references.map((reference) => reference.manager_verification_status),
+    ),
     openActionDueDates: finding.corrective_actions
       .filter((action) => action.workflow_status !== 'completed')
       .map((action) => action.current_due_date),
@@ -297,6 +287,7 @@ function suggestedFindingAction(
   if (next.code === 'send_official_email') return { ...base, kind: 'update', updateKind: 'sent_email' }
   if (next.code === 'record_follow_up_or_reply') return { ...base, kind: 'update', updateKind: 'follow_up' }
   if (next.code === 'update_progress' || next.code === 'complete_return_requirements') return { ...base, kind: 'update', updateKind: 'progress' }
+  if (next.code === 'verify_corrective_actions' || next.code === 'review_document_references') return { ...base, kind: 'guidance' }
   if (next.code === 'submit_to_manager') return { ...base, kind: 'update', updateKind: 'manager_review' }
   if (next.code === 'start_manager_review') return { ...base, kind: 'transition', transition: transition('under_manager_review') }
   if (next.code === 'approve') return { ...base, kind: 'transition', transition: transition('approved') }
@@ -552,11 +543,12 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
     void runMutation(
       `progress-${action.id}`,
       'تم حفظ نسبة الإنجاز وملاحظة التحديث بنجاح.',
-      () => updateCorrectiveActionProgress({
+      () => updateCorrectiveActionProgressAndStart({
         correctiveActionId: action.id,
         progressPercent,
         executionDetails: actionNotes[action.id] ?? '',
         expectedLockVersion: action.lock_version,
+        workflowStatus: action.workflow_status,
       }),
     )
   }
@@ -593,7 +585,15 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
 
   const availableFindingTransitions = selectedFinding
     ? (findingTransitions[selectedFinding.workflow_status] ?? []).filter((option) =>
-        option.roles.some((role) => currentRoles.includes(role)),
+        option.roles.some((role) => currentRoles.includes(role))
+        && (option.to !== 'submitted_for_manager_review'
+          || selectedFinding.corrective_actions.every((action) =>
+            action.workflow_status === 'submitted_for_manager_review' || action.workflow_status === 'completed'))
+        && (option.to !== 'approved'
+          || (selectedFinding.corrective_actions.flatMap((action) => action.document_references).length > 0
+            && selectedFinding.corrective_actions
+              .flatMap((action) => action.document_references)
+              .every((reference) => reference.manager_verification_status === 'approved'))),
       )
     : []
 
@@ -677,6 +677,8 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                   >
                     {mutationKey === `finding-${selectedFinding.id}` ? 'جاري التنفيذ...' : suggestedAction.label}
                   </button>
+                ) : suggestedAction.kind === 'guidance' ? (
+                  <span className="status">استكمل دورة الإجراء التصحيحي أدناه</span>
                 ) : (
                   <span className="status muted">قراءة فقط</span>
                 )}
@@ -707,7 +709,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
             <div className="detail-item"><span>الموعد المستهدف</span><strong>{formatArabicDate(selectedFinding.official_due_date)}</strong></div>
             <div className="detail-item"><span>نسبة الإنجاز</span><strong>{trackingProgress}%</strong></div>
             <div className="detail-item"><span>نسخة السجل</span><strong>{selectedFinding.lock_version}</strong></div>
-            {(otherFindingTransitions.length > 0 || currentRoles.some((role) => ['owner', 'manager', 'specialist', 'action_owner'].includes(role))) ? (
+            {(otherFindingTransitions.length > 0 || currentRoles.some((role) => ['owner', 'manager', 'action_owner'].includes(role))) ? (
               <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
                 <details>
                   <summary style={{ cursor: 'pointer', fontWeight: 700 }}>إجراءات أخرى</summary>
@@ -777,13 +779,14 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
             <div style={{ display: 'grid', gap: 14, marginTop: 14 }}>
               {selectedFinding.corrective_actions.map((action) => {
                 const availableActionTransitions = (actionTransitions[action.workflow_status] ?? []).filter((option) =>
-                  actionRoleAllowed(option, action, currentRoles, currentUserId),
+                  actionRoleAllowed(option, action, currentRoles, currentUserId)
+                  && (option.to !== 'submitted_for_manager_review'
+                    || (action.progress_percent === 100
+                      && Boolean(action.execution_details?.trim())
+                      && action.document_references.length > 0)),
                 )
-                const canUpdateProgress = currentRoles.some((role) =>
-                  role === 'manager'
-                  || role === 'specialist'
-                  || (role === 'action_owner' && action.responsible_user_id === currentUserId),
-                )
+                const canUpdateProgress = currentRoles.includes('action_owner')
+                  && action.responsible_user_id === currentUserId
 
                 return (
                   <article key={action.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'grid', gap: 12 }}>
@@ -795,6 +798,17 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                     <div className="detail-item"><span>الموعد</span><strong>{formatArabicDate(action.current_due_date)}</strong></div>
                     <div className="detail-item"><span>الإنجاز</span><strong>{action.progress_percent}%</strong></div>
                     <div className="detail-item"><span>نسخة السجل (lock_version)</span><strong>{action.lock_version}</strong></div>
+
+                    {selectedFinding.reference_code === '1.1' ? (
+                      <DocumentReferencesSection
+                        action={action}
+                        findingStatus={selectedFinding.workflow_status}
+                        roles={currentRoles}
+                        currentUserId={currentUserId}
+                        busy={mutationKey !== null}
+                        onRun={runMutation}
+                      />
+                    ) : null}
 
                     <div style={{ display: 'grid', gap: 10, paddingTop: 8 }}>
                       <h3 style={{ margin: 0, fontSize: 16 }}>تحديث التنفيذ</h3>
@@ -835,26 +849,13 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                     {availableActionTransitions.length > 0 ? (
                       <div style={{ display: 'grid', gap: 10, paddingTop: 8 }}>
                         <h3 style={{ margin: 0, fontSize: 16 }}>انتقال حالة الإجراء</h3>
-                        {availableActionTransitions.some((option) => option.to === 'returned_for_revision') ? (
-                          <textarea
-                            aria-label={`سبب انتقال الإجراء ${action.action_no}`}
-                            value={actionReasons[action.id] ?? ''}
-                            onChange={(event) => setActionReasons((current) => ({ ...current, [action.id]: event.target.value }))}
-                            placeholder="سبب الإرجاع للتعديل"
-                            rows={3}
-                            style={{ ...controlStyle, minHeight: 88, padding: 12, resize: 'vertical' }}
-                          />
-                        ) : null}
                         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                           {availableActionTransitions.map((option) => (
                             <button
                               className="secondary-button"
                               type="button"
                               key={option.to}
-                              disabled={
-                                mutationKey !== null
-                                || (option.to === 'returned_for_revision' && !(actionReasons[action.id] ?? '').trim())
-                              }
+                              disabled={mutationKey !== null}
                               onClick={() => handleActionTransition(action, option)}
                             >
                               {mutationKey === `action-${action.id}` ? 'جاري الحفظ...' : option.label}
@@ -863,6 +864,14 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                         </div>
                       </div>
                     ) : null}
+
+                    {action.workflow_status === 'in_progress'
+                      && canUpdateProgress
+                      && !availableActionTransitions.some((option) => option.to === 'submitted_for_manager_review') ? (
+                        <p style={{ color: 'var(--muted)', margin: 0 }}>
+                          يظهر «إرسال الإجراء للمدير» بعد وصول الإنجاز إلى 100%، واستكمال تفاصيل التنفيذ، وإضافة مستند مرجعي واحد على الأقل.
+                        </p>
+                      ) : null}
 
                   </article>
                 )

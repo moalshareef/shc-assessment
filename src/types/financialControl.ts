@@ -15,12 +15,16 @@ export type FinancialControlFindingStatus =
 export type CorrectiveActionStatus =
   | 'not_started'
   | 'in_progress'
-  | 'blocked'
-  | 'submitted_for_specialist_review'
-  | 'under_specialist_review'
-  | 'returned_for_revision'
-  | 'specialist_verified'
+  | 'submitted_for_manager_review'
   | 'completed'
+
+export type DocumentStorageLocation =
+  | 'share_folder'
+  | 'official_email'
+  | 'internal_system'
+  | 'other'
+
+export type DocumentVerificationStatus = 'pending' | 'approved' | 'rejected'
 
 export type FinancialControlAssessmentRating = 'partially_effective' | 'not_exists'
 
@@ -90,6 +94,59 @@ export interface FinancialControlCorrectiveAction {
   updated_at: string
   updated_by: string | null
   lock_version: number
+  document_references: CorrectiveActionDocumentReference[]
+}
+
+export interface CorrectiveActionDocumentReference {
+  id: string
+  workspace_id: string
+  finding_id: string
+  corrective_action_id: string
+  document_number: string
+  document_name: string
+  document_type: string
+  document_date: string
+  issuing_entity: string
+  storage_location: DocumentStorageLocation
+  location_reference: string
+  description: string | null
+  manager_verification_status: DocumentVerificationStatus
+  manager_decision_note: string | null
+  manager_verified_by: string | null
+  manager_verified_at: string | null
+  created_by: string
+  created_at: string
+  updated_at: string
+  lock_version: number
+}
+
+export interface DocumentReferenceFieldsInput {
+  correctiveActionId: string
+  documentNumber: string
+  documentName: string
+  documentType: string
+  documentDate: string
+  issuingEntity: string
+  storageLocation: DocumentStorageLocation
+  locationReference: string
+  description: string
+}
+
+export interface UpdateDocumentReferenceInput extends DocumentReferenceFieldsInput {
+  documentReferenceId: string
+  expectedLockVersion: number
+}
+
+export interface DeleteDocumentReferenceInput {
+  documentReferenceId: string
+  expectedLockVersion: number
+}
+
+export interface DecideDocumentReferenceInput {
+  documentReferenceId: string
+  decision: Extract<DocumentVerificationStatus, 'approved' | 'rejected'>
+  decisionNote: string
+  expectedLockVersion: number
 }
 
 export interface FinancialControlMessage {
@@ -155,6 +212,10 @@ export interface UpdateCorrectiveActionProgressInput {
   expectedLockVersion: number
 }
 
+export interface UpdateCorrectiveActionProgressAndStartInput extends UpdateCorrectiveActionProgressInput {
+  workflowStatus: CorrectiveActionStatus
+}
+
 export interface TransitionFindingInput {
   findingId: string
   toStatus: FinancialControlFindingStatus
@@ -199,6 +260,7 @@ export interface FinancialControlDashboardData {
   memberships: FinancialControlMembership[]
   findings: FinancialControlFinding[]
   correctiveActions: FinancialControlCorrectiveAction[]
+  documentReferences: CorrectiveActionDocumentReference[]
   profiles: FinancialControlProfile[]
   summary: FinancialControlSummary
 }

@@ -2,6 +2,10 @@ import { supabase } from '../lib/supabase'
 import type {
   CorrectiveActionStatus,
   AddFollowUpCommentInput,
+  CorrectiveActionDocumentReference,
+  DecideDocumentReferenceInput,
+  DeleteDocumentReferenceInput,
+  DocumentReferenceFieldsInput,
   FinancialControlComment,
   FinancialControlCorrectiveAction,
   FinancialControlDashboardData,
@@ -17,6 +21,8 @@ import type {
   RecordSentEmailInput,
   TransitionCorrectiveActionInput,
   TransitionFindingInput,
+  UpdateDocumentReferenceInput,
+  UpdateCorrectiveActionProgressAndStartInput,
   UpdateCorrectiveActionProgressInput,
 } from '../types/financialControl'
 import { FinancialControlServiceError } from '../types/financialControl'
@@ -34,11 +40,7 @@ const IN_PROGRESS_STATUSES = new Set<FinancialControlFindingStatus>([
 
 const ALLOWED_ACTION_TRANSITIONS: Partial<Record<CorrectiveActionStatus, ReadonlySet<CorrectiveActionStatus>>> = {
   not_started: new Set<CorrectiveActionStatus>(['in_progress']),
-  in_progress: new Set<CorrectiveActionStatus>(['submitted_for_specialist_review']),
-  submitted_for_specialist_review: new Set<CorrectiveActionStatus>(['under_specialist_review']),
-  under_specialist_review: new Set<CorrectiveActionStatus>(['returned_for_revision', 'specialist_verified']),
-  returned_for_revision: new Set<CorrectiveActionStatus>(['submitted_for_specialist_review']),
-  specialist_verified: new Set<CorrectiveActionStatus>(['completed']),
+  in_progress: new Set<CorrectiveActionStatus>(['submitted_for_manager_review']),
 }
 
 interface SupabaseErrorLike {
@@ -137,7 +139,7 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     )
   }
 
-  const [findingsResult, actionsResult, historyResult, messagesResult, commentsResult, profilesResult] = await Promise.all([
+  const [findingsResult, actionsResult, referencesResult, historyResult, messagesResult, commentsResult, profilesResult] = await Promise.all([
     supabase
       .from('financial_control_findings')
       .select('id, workspace_id, sequence_no, case_code, reference_code, title, assessment_rating, assessment_rating_label, official_owner_label, workflow_status, progress_percent, official_due_date, current_due_date, official_finding_text, control_reference, control_summary, last_activity_at, updated_at, lock_version')
@@ -149,6 +151,11 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
       .select('id, workspace_id, finding_id, action_no, official_action_text, execution_details, responsible_department_id, responsible_user_id, workflow_status, progress_percent, official_due_date, current_due_date, updated_at, updated_by, lock_version')
       .eq('workspace_id', workspace.id)
       .order('action_no', { ascending: true }),
+    supabase
+      .from('corrective_action_document_references')
+      .select('id, workspace_id, finding_id, corrective_action_id, document_number, document_name, document_type, document_date, issuing_entity, storage_location, location_reference, description, manager_verification_status, manager_decision_note, manager_verified_by, manager_verified_at, created_by, created_at, updated_at, lock_version')
+      .eq('workspace_id', workspace.id)
+      .order('created_at', { ascending: false }),
     supabase
       .from('finding_status_history')
       .select('id, workspace_id, finding_id, from_status, to_status, transition_code, reason, progress_before, progress_after, due_date_before, due_date_after, changed_by, changed_at')
@@ -173,6 +180,7 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
   if (
     findingsResult.error
     || actionsResult.error
+    || referencesResult.error
     || historyResult.error
     || messagesResult.error
     || commentsResult.error
@@ -184,7 +192,11 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     )
   }
 
-  const correctiveActions = (actionsResult.data ?? []) as FinancialControlCorrectiveAction[]
+  const rawCorrectiveActions = (actionsResult.data ?? []) as Omit<
+    FinancialControlCorrectiveAction,
+    'document_references'
+  >[]
+  const documentReferences = (referencesResult.data ?? []) as CorrectiveActionDocumentReference[]
   const statusHistory = (historyResult.data ?? []) as FinancialControlStatusHistory[]
   const messages = (messagesResult.data ?? []) as FinancialControlMessage[]
   const comments = (commentsResult.data ?? []) as FinancialControlComment[]
@@ -193,6 +205,18 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
   const historyByFinding = new Map<string, FinancialControlStatusHistory[]>()
   const messagesByFinding = new Map<string, FinancialControlMessage[]>()
   const commentsByFinding = new Map<string, FinancialControlComment[]>()
+  const referencesByAction = new Map<string, CorrectiveActionDocumentReference[]>()
+
+  documentReferences.forEach((reference) => {
+    const current = referencesByAction.get(reference.corrective_action_id) ?? []
+    current.push(reference)
+    referencesByAction.set(reference.corrective_action_id, current)
+  })
+
+  const correctiveActions: FinancialControlCorrectiveAction[] = rawCorrectiveActions.map((action) => ({
+    ...action,
+    document_references: referencesByAction.get(action.id) ?? [],
+  }))
 
   correctiveActions.forEach((action) => {
     const current = actionsByFinding.get(action.finding_id) ?? []
@@ -239,6 +263,7 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     memberships,
     findings,
     correctiveActions,
+    documentReferences,
     profiles,
     summary: buildSummary(findings, correctiveActions),
   }
@@ -395,6 +420,22 @@ export async function updateCorrectiveActionProgress(
   }
 }
 
+export async function updateCorrectiveActionProgressAndStart(
+  input: UpdateCorrectiveActionProgressAndStartInput,
+): Promise<void> {
+  await updateCorrectiveActionProgress(input)
+
+  if (input.progressPercent > 0 && input.workflowStatus === 'not_started') {
+    await transitionFinancialControlAction({
+      correctiveActionId: input.correctiveActionId,
+      fromStatus: 'not_started',
+      toStatus: 'in_progress',
+      reason: 'بدء تنفيذ الإجراء تلقائيًا بعد تسجيل تقدم أكبر من صفر.',
+      expectedLockVersion: input.expectedLockVersion + 1,
+    })
+  }
+}
+
 export async function transitionFinancialControlFinding(input: TransitionFindingInput): Promise<void> {
   const reason = input.reason?.trim() || null
   if ((input.toStatus === 'returned_for_revision' || input.toStatus === 'reopened') && !reason) {
@@ -417,10 +458,6 @@ export async function transitionFinancialControlAction(
   input: TransitionCorrectiveActionInput,
 ): Promise<void> {
   const reason = input.reason?.trim() || null
-  if (input.toStatus === 'returned_for_revision' && !reason) {
-    throw new FinancialControlServiceError('validation', 'سبب الإرجاع للتعديل مطلوب.')
-  }
-
   if (!ALLOWED_ACTION_TRANSITIONS[input.fromStatus]?.has(input.toStatus)) {
     throw new FinancialControlServiceError('validation', 'انتقال حالة الإجراء المطلوب غير مدعوم.')
   }
@@ -435,4 +472,71 @@ export async function transitionFinancialControlAction(
   if (error) {
     throw toMutationError(error, 'تعذر تنفيذ انتقال حالة الإجراء التصحيحي.')
   }
+}
+
+function documentReferenceRpcFields(input: DocumentReferenceFieldsInput) {
+  if (!input.documentDate) {
+    throw new FinancialControlServiceError('validation', 'تاريخ المستند مطلوب.')
+  }
+
+  return {
+    p_corrective_action_id: input.correctiveActionId,
+    p_document_number: requireText(input.documentNumber, 'رقم المستند'),
+    p_document_name: requireText(input.documentName, 'اسم المستند'),
+    p_document_type: requireText(input.documentType, 'نوع المستند'),
+    p_document_date: input.documentDate,
+    p_issuing_entity: requireText(input.issuingEntity, 'الجهة المصدرة'),
+    p_storage_location: input.storageLocation,
+    p_location_reference: requireText(input.locationReference, 'المسار أو المرجع'),
+    p_description: input.description.trim() || null,
+  }
+}
+
+export async function addDocumentReference(
+  input: DocumentReferenceFieldsInput,
+): Promise<CorrectiveActionDocumentReference> {
+  const { data, error } = await supabase.rpc(
+    'financial_control_add_document_reference',
+    documentReferenceRpcFields(input),
+  )
+  if (error) throw toMutationError(error, 'تعذر إضافة المستند المرجعي.')
+  return data as CorrectiveActionDocumentReference
+}
+
+export async function updateDocumentReference(
+  input: UpdateDocumentReferenceInput,
+): Promise<CorrectiveActionDocumentReference> {
+  const fields = documentReferenceRpcFields(input)
+  const { p_corrective_action_id: _correctiveActionId, ...rpcFields } = fields
+  void _correctiveActionId
+  const { data, error } = await supabase.rpc('financial_control_update_document_reference', {
+    p_document_reference_id: input.documentReferenceId,
+    ...rpcFields,
+    p_expected_lock_version: input.expectedLockVersion,
+  })
+  if (error) throw toMutationError(error, 'تعذر تعديل المستند المرجعي.')
+  return data as CorrectiveActionDocumentReference
+}
+
+export async function deleteDocumentReference(input: DeleteDocumentReferenceInput): Promise<void> {
+  const { error } = await supabase.rpc('financial_control_delete_document_reference', {
+    p_document_reference_id: input.documentReferenceId,
+    p_expected_lock_version: input.expectedLockVersion,
+  })
+  if (error) throw toMutationError(error, 'تعذر حذف المستند المرجعي.')
+}
+
+export async function decideDocumentReference(input: DecideDocumentReferenceInput): Promise<void> {
+  const note = input.decisionNote.trim()
+  if (input.decision === 'rejected' && !note) {
+    throw new FinancialControlServiceError('validation', 'سبب رفض المستند المرجعي مطلوب.')
+  }
+
+  const { error } = await supabase.rpc('financial_control_decide_document_reference', {
+    p_document_reference_id: input.documentReferenceId,
+    p_decision: input.decision,
+    p_decision_note: note || null,
+    p_expected_lock_version: input.expectedLockVersion,
+  })
+  if (error) throw toMutationError(error, 'تعذر حفظ قرار المدير للمستند المرجعي.')
 }

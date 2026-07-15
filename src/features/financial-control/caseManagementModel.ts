@@ -1,4 +1,6 @@
 import type {
+  CorrectiveActionStatus,
+  DocumentVerificationStatus,
   FinancialControlFindingStatus,
   FinancialControlRole,
 } from '../../types/financialControl'
@@ -21,6 +23,8 @@ export type CaseNextActionCode =
   | 'send_official_email'
   | 'record_follow_up_or_reply'
   | 'update_progress'
+  | 'verify_corrective_actions'
+  | 'review_document_references'
   | 'submit_to_manager'
   | 'start_manager_review'
   | 'approve'
@@ -32,6 +36,8 @@ export interface CaseSnapshot {
   workflowStatus: FinancialControlFindingStatus
   currentDueDate: string
   progress: number
+  correctiveActionStatuses: CorrectiveActionStatus[]
+  documentReferenceStatuses: DocumentVerificationStatus[]
   openActionDueDates: string[]
   sentEmailDates: string[]
   officialReplyDates: string[]
@@ -114,6 +120,32 @@ export function caseWorkflowStage(snapshot: CaseSnapshot) {
   return 0
 }
 
+export function canSubmitToManager(
+  snapshot: Pick<CaseSnapshot, 'workflowStatus' | 'progress' | 'correctiveActionStatuses'>,
+  roles: FinancialControlRole[],
+) {
+  const authorized = roles.includes('action_owner')
+  const alreadyWithManagerOrFinished = [
+    'submitted_for_manager_review',
+    'under_manager_review',
+    'approved',
+    'closed',
+  ].includes(snapshot.workflowStatus)
+
+  const allActionsSubmitted = areAllCorrectiveActionsSubmitted(snapshot.correctiveActionStatuses)
+
+  return authorized && allActionsSubmitted && !alreadyWithManagerOrFinished
+}
+
+export function areAllCorrectiveActionsSubmitted(statuses: CorrectiveActionStatus[]) {
+  return statuses.length > 0
+    && statuses.every((status) => status === 'submitted_for_manager_review' || status === 'completed')
+}
+
+export function areAllDocumentReferencesApproved(statuses: DocumentVerificationStatus[]) {
+  return statuses.length > 0 && statuses.every((status) => status === 'approved')
+}
+
 export function caseWorkQueues(snapshot: CaseSnapshot, now = new Date()): CaseWorkQueueKey[] {
   const queues: CaseWorkQueueKey[] = []
   const dueDays = daysUntilCaseDue(snapshot, now)
@@ -127,7 +159,13 @@ export function caseWorkQueues(snapshot: CaseSnapshot, now = new Date()): CaseWo
   if (dueDays < 0 && open) queues.push('overdue', 'manager_overdue')
   if (open && daysWithoutCaseUpdate(snapshot, now) >= STALE_DAYS) queues.push('stale')
   if (snapshot.workflowStatus === 'returned_for_revision') queues.push('returned', 'manager_returned')
-  if (snapshot.progress === 100 && ['in_progress', 'returned_for_revision'].includes(snapshot.workflowStatus)) {
+  const allActionsSubmitted = areAllCorrectiveActionsSubmitted(snapshot.correctiveActionStatuses)
+  if (allActionsSubmitted && ![
+    'submitted_for_manager_review',
+    'under_manager_review',
+    'approved',
+    'closed',
+  ].includes(snapshot.workflowStatus)) {
     queues.push('ready_to_submit')
   }
   if (['submitted_for_manager_review', 'under_manager_review'].includes(snapshot.workflowStatus)) {
@@ -139,7 +177,8 @@ export function caseWorkQueues(snapshot: CaseSnapshot, now = new Date()): CaseWo
 
 export function nextCaseAction(snapshot: CaseSnapshot, roles: FinancialControlRole[]): CaseNextAction {
   const canManage = roles.some((role) => role === 'owner' || role === 'manager')
-  const canWork = roles.some((role) => ['owner', 'specialist', 'action_owner'].includes(role))
+  const canWork = roles.includes('action_owner')
+  const canEdit = roles.some((role) => ['owner', 'manager', 'action_owner'].includes(role))
 
   if (snapshot.workflowStatus === 'closed') {
     return {
@@ -155,7 +194,24 @@ export function nextCaseAction(snapshot: CaseSnapshot, roles: FinancialControlRo
     return { code: 'start_manager_review', label: 'بدء مراجعة المدير', reason: 'رفع الموظف الملاحظة وتنتظر بدء مراجعة المدير.' }
   }
   if (snapshot.workflowStatus === 'under_manager_review' && canManage) {
+    if (!areAllDocumentReferencesApproved(snapshot.documentReferenceStatuses)) {
+      return {
+        code: 'review_document_references',
+        label: 'مراجعة المستندات المرجعية',
+        reason: 'لا يمكن اعتماد الملاحظة حتى يعتمد المدير جميع المستندات المرجعية ولا يبقى أي مرجع بانتظار المراجعة أو مرفوضًا.',
+      }
+    }
     return { code: 'approve', label: 'اعتماد الملاحظة', reason: 'الملاحظة تحت مراجعة المدير؛ يمكن اعتمادها أو إعادتها بسبب من الإجراءات الأخرى.' }
+  }
+  if (snapshot.progress === 100 && !areAllCorrectiveActionsSubmitted(snapshot.correctiveActionStatuses) && canWork) {
+    return {
+      code: 'verify_corrective_actions',
+      label: 'إرسال الإجراء للمدير',
+      reason: 'اكتمل الإنجاز رقميًا؛ استكمل تفاصيل التنفيذ وأضف مستندًا مرجعيًا ثم أرسل كل إجراء إلى المدير.',
+    }
+  }
+  if (canSubmitToManager(snapshot, roles)) {
+    return { code: 'submit_to_manager', label: 'رفع للمدير', reason: 'اكتمل التنفيذ بنسبة 100% ولم ترفع الملاحظة للمدير بعد.' }
   }
   if (snapshot.workflowStatus === 'reopened' && canWork) {
     return { code: 'update_progress', label: 'استكمال المتابعة بعد إعادة الفتح', reason: 'أعيد فتح الملاحظة بسبب مسجل وتحتاج تحديث التنفيذ قبل إعادة الرفع.' }
@@ -172,13 +228,11 @@ export function nextCaseAction(snapshot: CaseSnapshot, roles: FinancialControlRo
   if (snapshot.progress < 100 && canWork) {
     return { code: 'update_progress', label: 'تحديث التقدم', reason: 'سُجل الرد لكن تنفيذ الإجراء التصحيحي لم يكتمل.' }
   }
-  if (snapshot.progress === 100 && canWork && ['in_progress', 'returned_for_revision'].includes(snapshot.workflowStatus)) {
-    return { code: 'submit_to_manager', label: 'رفع للمدير', reason: 'اكتمل التنفيذ بنسبة 100% ولم ترفع الملاحظة للمدير بعد.' }
-  }
+  if (canEdit) return { code: 'update_progress', label: 'إضافة تحديث متابعة', reason: 'يمكنك تسجيل تحديث تشغيلي من الإجراءات المتاحة.' }
   return {
     code: 'readonly',
     label: 'عرض الملاحظة',
-    reason: canWork || canManage ? 'لا يوجد إجراء تالٍ متاح من الحالة الحالية.' : 'صلاحيتك الحالية للاطلاع فقط.',
+    reason: 'صلاحيتك الحالية للاطلاع فقط.',
   }
 }
 

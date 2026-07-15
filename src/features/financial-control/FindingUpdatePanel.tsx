@@ -4,13 +4,14 @@ import {
   recordOfficialReply,
   recordSentEmail,
   transitionFinancialControlFinding,
-  updateCorrectiveActionProgress,
+  updateCorrectiveActionProgressAndStart,
 } from '../../services/financialControlService'
 import type {
   FinancialControlFinding,
   FinancialControlRole,
 } from '../../types/financialControl'
 import { formatArabicDate } from './dateFormat'
+import { canSubmitToManager } from './caseManagementModel'
 
 export type FindingUpdateKind = 'sent_email' | 'official_reply' | 'progress' | 'follow_up' | 'manager_review'
 
@@ -74,8 +75,14 @@ export function FindingUpdatePanel({
   const [actionId, setActionId] = useState(finding.corrective_actions[0]?.id ?? '')
 
   const canEdit = roles.some((role) => ['owner', 'manager', 'specialist', 'action_owner'].includes(role))
-  const canRaiseToManager = roles.some((role) => role === 'owner' || role === 'specialist')
-    && ['in_progress', 'returned_for_revision'].includes(finding.workflow_status)
+  const trackingProgress = finding.corrective_actions.length > 0
+    ? Math.round(finding.corrective_actions.reduce((sum, action) => sum + action.progress_percent, 0) / finding.corrective_actions.length)
+    : finding.progress_percent
+  const canRaiseToManager = canSubmitToManager({
+    workflowStatus: finding.workflow_status,
+    progress: trackingProgress,
+    correctiveActionStatuses: finding.corrective_actions.map((action) => action.workflow_status),
+  }, roles)
   const selectedAction = useMemo(
     () => finding.corrective_actions.find((action) => action.id === actionId) ?? null,
     [actionId, finding.corrective_actions],
@@ -133,11 +140,12 @@ export function FindingUpdatePanel({
       const executionDetails = obstacles.trim()
         ? `وصف التقدم: ${text.trim()}\nالعوائق: ${obstacles.trim()}`
         : `وصف التقدم: ${text.trim()}\nالعوائق: لا توجد عوائق مسجلة.`
-      operation = () => updateCorrectiveActionProgress({
+      operation = () => updateCorrectiveActionProgressAndStart({
         correctiveActionId: selectedAction.id,
         progressPercent,
         executionDetails,
         expectedLockVersion: selectedAction.lock_version,
+        workflowStatus: selectedAction.workflow_status,
       })
       successMessage = 'تم تحديث نسبة الإنجاز والتقدم.'
     }
