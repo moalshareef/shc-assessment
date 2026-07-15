@@ -3,6 +3,7 @@ import { Icon } from '../../components/layout/Header'
 import { getPlatformAdminOverview, PlatformAdminSessionExpiredError } from '../../services/platformAdminService'
 import type { PlatformAdminOverview } from '../../types/platformAdmin'
 import { PlatformModulesSection } from './PlatformModulesSection'
+import { PlatformOrganizationsSection } from './PlatformOrganizationsSection'
 import './platformAdmin.css'
 
 type PageState =
@@ -55,7 +56,10 @@ export function PlatformAdminPage() {
   }, [])
 
   useEffect(() => {
-    if (import.meta.env.DEV) void import('./platformModulesScenario.dev')
+    if (import.meta.env.DEV) {
+      void import('./platformModulesScenario.dev')
+      void import('./platformOrganizationsScenario.dev')
+    }
   }, [])
 
   if (pageState.status === 'loading') {
@@ -112,7 +116,7 @@ export function PlatformAdminPage() {
       count: counts.organizations,
       countLabel: 'جهة متاحة حاليًا',
       icon: 'workspace' as const,
-      status: 'قيد الاستكمال',
+      status: 'إدارة متاحة',
     },
     {
       title: 'طلبات الصلاحيات',
@@ -131,7 +135,7 @@ export function PlatformAdminPage() {
         <div>
           <span className="eyebrow">حوكمة المنصة</span>
           <h1>الإدارة المركزية للمنصة</h1>
-          <p>إدارة مركزية للموديلات، مع استمرار بقية أقسام الحوكمة في وضع القراءة فقط.</p>
+          <p>إدارة مركزية للموديلات والجهات، مع استمرار بقية أقسام الحوكمة في وضع القراءة فقط.</p>
         </div>
         <span className="platform-admin-readonly"><Icon name="shield" size={17} /> مالك النظام</span>
       </div>
@@ -168,8 +172,9 @@ export function PlatformAdminPage() {
         ))}
       </section>
 
-      {refreshing ? <div className="platform-admin-refreshing" role="status">جاري تحديث بيانات الموديلات...</div> : null}
+      {refreshing ? <div className="platform-admin-refreshing" role="status">جاري تحديث بيانات الإدارة المركزية...</div> : null}
       <PlatformModulesSection modules={pageState.overview.modules} onReload={() => loadOverview(false)} />
+      <PlatformOrganizationsSection organizations={pageState.overview.organizations} onReload={() => loadOverview(false)} />
     </div>
   )
 }

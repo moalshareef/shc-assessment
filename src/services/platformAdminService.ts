@@ -8,8 +8,10 @@ import {
   mapPlatformModule,
   type PlatformAdminRpcCaller,
 } from '../features/platform-admin/platformModulesApi'
+import { createPlatformOrganizationManagementApi } from '../features/platform-admin/platformOrganizationsApi'
 
 export { PlatformModuleConflictError } from '../features/platform-admin/platformModulesApi'
+export { PlatformOrganizationConflictError } from '../features/platform-admin/platformOrganizationsApi'
 
 export class PlatformAdminSessionExpiredError extends Error {
   constructor() {
@@ -44,7 +46,7 @@ export async function currentUserIsSystemOwner(): Promise<boolean> {
   return data === true
 }
 
-async function getVisibleRowCount(table: 'organizations' | 'platform_role_assignments') {
+async function getVisibleRowCount(table: 'platform_role_assignments') {
   const { count, error } = await supabase
     .from(table)
     .select('id', { count: 'exact', head: true })
@@ -80,7 +82,7 @@ export async function getPlatformAdminOverview(): Promise<PlatformAdminOverview 
       .eq('id', user.id)
       .single(),
     getVisibleModules(),
-    getVisibleRowCount('organizations'),
+    platformOrganizationManagementApi.listOrganizations(),
     getVisibleRowCount('platform_role_assignments'),
   ])
 
@@ -94,15 +96,21 @@ export async function getPlatformAdminOverview(): Promise<PlatformAdminOverview 
     },
     counts: {
       modules: modules.length,
-      organizations,
+      organizations: organizations.length,
       roleAssignments,
     },
     modules,
+    organizations,
   }
 }
 
 const platformModuleManagementApi = createPlatformModuleManagementApi(supabaseRpc, currentUserIsSystemOwner)
+const platformOrganizationManagementApi = createPlatformOrganizationManagementApi(supabaseRpc, currentUserIsSystemOwner)
 
 export const createPlatformModule = platformModuleManagementApi.createModule
 export const updatePlatformModule = platformModuleManagementApi.updateModule
 export const changePlatformModuleStatus = platformModuleManagementApi.changeModuleStatus
+export const listPlatformOrganizations = platformOrganizationManagementApi.listOrganizations
+export const createPlatformOrganization = platformOrganizationManagementApi.createOrganization
+export const updatePlatformOrganization = platformOrganizationManagementApi.updateOrganization
+export const changePlatformOrganizationStatus = platformOrganizationManagementApi.changeOrganizationStatus

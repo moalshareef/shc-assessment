@@ -266,6 +266,22 @@
   min-width: 1120px;
 }
 
+.platform-organizations-table {
+  min-width: 1320px;
+}
+
+.platform-organizations-table td:nth-child(3) {
+  max-width: 260px;
+  color: #40576d;
+}
+
+.platform-organizations-table td:nth-child(4) small {
+  display: block;
+  max-width: 190px;
+  margin-top: 6px;
+  color: var(--muted);
+}
+
 .platform-modules-table td {
   vertical-align: top;
   line-height: 1.65;
@@ -370,6 +386,7 @@
 }
 
 .platform-module-form input,
+.platform-module-form select,
 .platform-module-form textarea {
   width: 100%;
   padding: 11px 12px;
@@ -384,6 +401,7 @@
 }
 
 .platform-module-form input:focus,
+.platform-module-form select:focus,
 .platform-module-form textarea:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px rgba(25, 113, 183, .1);
