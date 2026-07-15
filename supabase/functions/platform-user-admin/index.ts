@@ -47,19 +47,28 @@ async function authenticatedUser(admin: SupabaseClient, token: string) {
 
 async function assertSystemOwner(admin: SupabaseClient, actor: User) {
   const now = new Date().toISOString()
-  const { data, error } = await admin
+  // user_id is the intended relationship: platform_role_assignments_user_id_fkey.
+  // Keep profile state in a separate query to avoid ambiguous PostgREST embeds.
+  const { data: assignments, error: assignmentError } = await admin
     .from('platform_role_assignments')
-    .select('id, profiles!inner(is_active)')
+    .select('id')
     .eq('user_id', actor.id)
     .eq('platform_role', 'system_owner')
     .eq('status', 'active')
-    .eq('profiles.is_active', true)
     .is('revoked_at', null)
     .or(`starts_at.is.null,starts_at.lte.${now}`)
     .or(`ends_at.is.null,ends_at.gt.${now}`)
     .limit(1)
-  if (error) throw error
-  if (!data?.length) throw Object.assign(new Error('لا تملك صلاحية مالك النظام.'), { status: 403 })
+  if (assignmentError) throw assignmentError
+  if (!assignments?.length) throw Object.assign(new Error('لا تملك صلاحية مالك النظام.'), { status: 403 })
+
+  const { data: profile, error: profileError } = await admin
+    .from('profiles')
+    .select('is_active')
+    .eq('id', actor.id)
+    .maybeSingle()
+  if (profileError) throw profileError
+  if (!profile?.is_active) throw Object.assign(new Error('الحساب غير فعال.'), { status: 403 })
   return actor
 }
 
@@ -85,18 +94,27 @@ async function listAllAuthUsers(admin: SupabaseClient) {
 async function listUsers(admin: SupabaseClient) {
   const authUsers = await listAllAuthUsers(admin)
   const ids = authUsers.map((user) => user.id)
-  const [profilesResult, membershipsResult, invitationsResult] = await Promise.all([
+  const now = new Date().toISOString()
+  const [profilesResult, membershipsResult, invitationsResult, rolesResult] = await Promise.all([
     ids.length ? admin.from('profiles').select('id, full_name, is_active, created_at').in('id', ids) : Promise.resolve({ data: [], error: null }),
     ids.length ? admin.from('user_organizations').select('user_id, organization_id, organizations(organization_name_ar)').in('user_id', ids).eq('is_primary', true).eq('status', 'active') : Promise.resolve({ data: [], error: null }),
     admin.from('user_invitations').select('email_normalized, status, sent_at, auth_invited_user_id, platform_sync_status').order('created_at', { ascending: false }),
+    ids.length ? admin.from('platform_role_assignments').select('user_id, platform_role').in('user_id', ids).eq('status', 'active').is('revoked_at', null).or(`starts_at.is.null,starts_at.lte.${now}`).or(`ends_at.is.null,ends_at.gt.${now}`) : Promise.resolve({ data: [], error: null }),
   ])
   if (profilesResult.error) throw profilesResult.error
   if (membershipsResult.error) throw membershipsResult.error
   if (invitationsResult.error) throw invitationsResult.error
+  if (rolesResult.error) throw rolesResult.error
 
   const profiles = new Map((profilesResult.data ?? []).map((row) => [row.id, row]))
   const memberships = new Map((membershipsResult.data ?? []).map((row) => [row.user_id, row]))
   const invitations = new Map((invitationsResult.data ?? []).map((row) => [row.auth_invited_user_id || row.email_normalized, row]))
+  const roles = new Map<string, string[]>()
+  for (const row of rolesResult.data ?? []) {
+    const current = roles.get(row.user_id) ?? []
+    if (!current.includes(row.platform_role)) current.push(row.platform_role)
+    roles.set(row.user_id, current)
+  }
 
   return authUsers.map((user) => {
     const profile = profiles.get(user.id)
@@ -115,6 +133,7 @@ async function listUsers(admin: SupabaseClient) {
       last_sign_in_at: user.last_sign_in_at ?? null,
       primary_organization_id: membership?.organization_id ?? null,
       primary_organization_name: organization?.organization_name_ar ?? null,
+      platform_roles: roles.get(user.id) ?? [],
       created_at: user.created_at,
     }
   })

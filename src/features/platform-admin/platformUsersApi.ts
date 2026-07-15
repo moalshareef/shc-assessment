@@ -16,6 +16,7 @@ function mapUser(value: unknown): PlatformAdminUser {
     lastSignInAt: typeof row.last_sign_in_at === 'string' ? row.last_sign_in_at : null,
     primaryOrganizationId: typeof row.primary_organization_id === 'string' ? row.primary_organization_id : null,
     primaryOrganizationName: typeof row.primary_organization_name === 'string' ? row.primary_organization_name : null,
+    platformRoles: Array.isArray(row.platform_roles) ? row.platform_roles.filter((role): role is string => typeof role === 'string') : [],
     createdAt: String(row.created_at ?? ''),
   }
 }

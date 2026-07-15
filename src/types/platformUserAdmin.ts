@@ -13,6 +13,7 @@ export interface PlatformAdminUser {
   lastSignInAt: string | null
   primaryOrganizationId: string | null
   primaryOrganizationName: string | null
+  platformRoles: string[]
   createdAt: string
 }
 

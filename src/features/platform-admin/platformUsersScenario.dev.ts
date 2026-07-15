@@ -13,7 +13,7 @@ export async function runDevelopmentPlatformUsersScenario() {
   const generatedStrongPassword = `Aa1!${crypto.randomUUID()}`
   const invoke: PlatformUserAdminInvoker = async (body) => {
     calls.push(body)
-    if (body.action === 'list_users') return { data: { users: [] }, error: null }
+    if (body.action === 'list_users') return { data: { users: [{ user_id: 'mock-owner', email: 'owner@example.com', full_name: 'مالك النظام', profile_status: 'active', email_confirmed: true, last_sign_in_at: null, primary_organization_id: null, primary_organization_name: null, platform_roles: ['system_owner'], created_at: new Date(0).toISOString() }] }, error: null }
     return { data: { result: { user_id: 'mock-user' } }, error: null }
   }
   const owner = createPlatformUsersApi(invoke, async () => true)
@@ -27,8 +27,9 @@ export async function runDevelopmentPlatformUsersScenario() {
   assert(validateTemporaryPassword('weak') !== null, 'رفض كلمة المرور الضعيفة.', results)
   assert(validateTemporaryPassword(generatedStrongPassword) === null, 'قبول كلمة المرور القوية.', results)
 
-  await owner.listUsers()
+  const listedUsers = await owner.listUsers()
   assert(calls[calls.length - 1]?.action === 'list_users', 'القراءة عبر Edge Function.', results)
+  assert(listedUsers[0]?.platformRoles[0] === 'system_owner', 'إرجاع الأدوار المنصية دون embed مبهم.', results)
   await owner.inviteUser({ email: ' USER@EXAMPLE.COM ', fullName: ' مستخدم ', primaryOrganizationId: 'org-1' })
   assert(calls[calls.length - 1]?.action === 'invite_user', 'الدعوة عبر Edge Function.', results)
   assert(calls[calls.length - 1]?.email === 'user@example.com', 'تطبيع البريد.', results)
