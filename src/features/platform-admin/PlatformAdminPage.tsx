@@ -4,6 +4,7 @@ import { getPlatformAdminOverview, PlatformAdminSessionExpiredError } from '../.
 import type { PlatformAdminOverview } from '../../types/platformAdmin'
 import { PlatformModulesSection } from './PlatformModulesSection'
 import { PlatformOrganizationsSection } from './PlatformOrganizationsSection'
+import { PlatformUsersSection } from './PlatformUsersSection'
 import './platformAdmin.css'
 
 type PageState =
@@ -59,6 +60,7 @@ export function PlatformAdminPage() {
     if (import.meta.env.DEV) {
       void import('./platformModulesScenario.dev')
       void import('./platformOrganizationsScenario.dev')
+      void import('./platformUsersScenario.dev')
     }
   }, [])
 
@@ -108,7 +110,7 @@ export function PlatformAdminPage() {
       count: counts.roleAssignments,
       countLabel: 'تعيين دور منصي',
       icon: 'users' as const,
-      status: 'قراءة فقط',
+      status: 'إدارة متاحة',
     },
     {
       title: 'الجهات',
@@ -175,6 +177,7 @@ export function PlatformAdminPage() {
       {refreshing ? <div className="platform-admin-refreshing" role="status">جاري تحديث بيانات الإدارة المركزية...</div> : null}
       <PlatformModulesSection modules={pageState.overview.modules} onReload={() => loadOverview(false)} />
       <PlatformOrganizationsSection organizations={pageState.overview.organizations} onReload={() => loadOverview(false)} />
+      <PlatformUsersSection organizations={pageState.overview.organizations} />
     </div>
   )
 }

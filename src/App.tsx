@@ -9,6 +9,7 @@ import { PillarDetailsPage } from './features/spending-efficiency/PillarDetailsP
 import { PlatformAdminPage } from './features/platform-admin/PlatformAdminPage'
 import { supabase } from './lib/supabase'
 import { currentUserIsSystemOwner } from './services/platformAdminService'
+import { currentProfileIsActive } from './services/platformUserAdminService'
 import type { ViewName } from './app/types'
 import type { SupabasePillar } from './types/spendingEfficiency'
 
@@ -30,6 +31,8 @@ export default function App() {
   const [signOutLoading, setSignOutLoading] = useState(false)
   const [selectedPillar, setSelectedPillar] = useState<SupabasePillar | null>(null)
   const [isSystemOwner, setIsSystemOwner] = useState(false)
+  const [profileAccessReady, setProfileAccessReady] = useState(false)
+  const [profileActive, setProfileActive] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -58,10 +61,23 @@ export default function App() {
   useEffect(() => {
     if (!session) {
       setIsSystemOwner(false)
+      setProfileActive(false)
+      setProfileAccessReady(true)
       return
     }
 
     let active = true
+    setProfileAccessReady(false)
+    void currentProfileIsActive()
+      .then((isActive) => {
+        if (active) setProfileActive(isActive)
+      })
+      .catch(() => {
+        if (active) setProfileActive(false)
+      })
+      .finally(() => {
+        if (active) setProfileAccessReady(true)
+      })
     void currentUserIsSystemOwner()
       .then((hasRole) => {
         if (active) setIsSystemOwner(hasRole)
@@ -127,6 +143,14 @@ export default function App() {
 
   if (!session) {
     return <LoginPage />
+  }
+
+  if (!profileAccessReady) {
+    return <main className="auth-page" dir="rtl"><p>جاري التحقق من حالة الحساب...</p></main>
+  }
+
+  if (!profileActive) {
+    return <main className="auth-page" dir="rtl"><section className="login-card"><h1>الحساب موقوف</h1><p>تم إيقاف هذا الحساب. تواصل مع مالك النظام إذا كنت تعتقد أن ذلك غير صحيح.</p><button className="primary-button" type="button" onClick={() => void handleSignOut()} disabled={signOutLoading}>{signOutLoading ? 'جاري تسجيل الخروج...' : 'العودة إلى تسجيل الدخول'}</button></section></main>
   }
 
   const isWorkspaceView = activeView === 'workspace' || activeView === 'pillars' || activeView === 'pillarDetail'

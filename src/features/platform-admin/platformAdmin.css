@@ -270,6 +270,48 @@
   min-width: 1320px;
 }
 
+.platform-users-table {
+  min-width: 1320px;
+}
+
+.platform-users-table td:nth-child(5) small {
+  display: block;
+  margin-top: 5px;
+  color: var(--danger);
+}
+
+.platform-user-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.platform-user-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.platform-user-stats > div {
+  display: grid;
+  gap: 4px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.platform-user-stats strong {
+  color: var(--blue-dark);
+  font-size: 25px;
+}
+
+.platform-user-stats span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .platform-organizations-table td:nth-child(3) {
   max-width: 260px;
   color: #40576d;
@@ -457,6 +499,10 @@
   .platform-modules-header .primary-button {
     align-self: flex-start;
   }
+
+  .platform-user-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -489,6 +535,15 @@
   }
 
   .platform-modules-header .primary-button {
+    width: 100%;
+  }
+
+  .platform-user-header-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .platform-user-header-actions button {
     width: 100%;
   }
 
