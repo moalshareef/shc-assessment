@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Icon } from '../../components/layout/Header'
 import { getPlatformAdminOverview, PlatformAdminSessionExpiredError } from '../../services/platformAdminService'
 import type { PlatformAdminOverview } from '../../types/platformAdmin'
+import { PlatformModulesSection } from './PlatformModulesSection'
 import './platformAdmin.css'
 
 type PageState =
@@ -12,28 +13,49 @@ type PageState =
 
 export function PlatformAdminPage() {
   const [pageState, setPageState] = useState<PageState>({ status: 'loading' })
+  const [refreshing, setRefreshing] = useState(false)
+
+  const loadOverview = useCallback(async (showInitialLoading = false) => {
+    if (showInitialLoading) setPageState({ status: 'loading' })
+    else setRefreshing(true)
+
+    try {
+      const overview = await getPlatformAdminOverview()
+      setPageState(overview ? { status: 'ready', overview } : { status: 'unauthorized' })
+    } catch (error) {
+      setPageState({
+        status: 'error',
+        message: error instanceof PlatformAdminSessionExpiredError
+          ? error.message
+          : 'تعذّر تحميل الإدارة المركزية. تحقق من الاتصال والصلاحيات ثم حاول مرة أخرى.',
+      })
+    } finally {
+      setRefreshing(false)
+    }
+  }, [])
 
   useEffect(() => {
     let active = true
 
-    void getPlatformAdminOverview()
-      .then((overview) => {
-        if (!active) return
-        setPageState(overview ? { status: 'ready', overview } : { status: 'unauthorized' })
+    void getPlatformAdminOverview().then((overview) => {
+      if (active) setPageState(overview ? { status: 'ready', overview } : { status: 'unauthorized' })
+    }).catch((error: unknown) => {
+      if (!active) return
+      setPageState({
+        status: 'error',
+        message: error instanceof PlatformAdminSessionExpiredError
+          ? error.message
+          : 'تعذّر تحميل الإدارة المركزية. تحقق من الاتصال والصلاحيات ثم حاول مرة أخرى.',
       })
-      .catch((error: unknown) => {
-        if (!active) return
-        setPageState({
-          status: 'error',
-          message: error instanceof PlatformAdminSessionExpiredError
-            ? error.message
-            : 'تعذّر تحميل الإدارة المركزية. تحقق من الاتصال والصلاحيات ثم حاول مرة أخرى.',
-        })
-      })
+    })
 
     return () => {
       active = false
     }
+  }, [])
+
+  useEffect(() => {
+    if (import.meta.env.DEV) void import('./platformModulesScenario.dev')
   }, [])
 
   if (pageState.status === 'loading') {
@@ -74,7 +96,7 @@ export function PlatformAdminPage() {
       count: counts.modules,
       countLabel: 'موديل متاح حاليًا',
       icon: 'settings' as const,
-      status: 'قيد الاستكمال',
+      status: 'إدارة متاحة',
     },
     {
       title: 'المستخدمون والصلاحيات',
@@ -109,9 +131,9 @@ export function PlatformAdminPage() {
         <div>
           <span className="eyebrow">حوكمة المنصة</span>
           <h1>الإدارة المركزية للمنصة</h1>
-          <p>نظرة مركزية للقراءة فقط على الموديلات والجهات وأدوار المنصة.</p>
+          <p>إدارة مركزية للموديلات، مع استمرار بقية أقسام الحوكمة في وضع القراءة فقط.</p>
         </div>
-        <span className="platform-admin-readonly"><Icon name="shield" size={17} /> قراءة فقط</span>
+        <span className="platform-admin-readonly"><Icon name="shield" size={17} /> مالك النظام</span>
       </div>
 
       <section className="platform-owner-card" aria-labelledby="platform-owner-title">
@@ -145,6 +167,9 @@ export function PlatformAdminPage() {
           </article>
         ))}
       </section>
+
+      {refreshing ? <div className="platform-admin-refreshing" role="status">جاري تحديث بيانات الموديلات...</div> : null}
+      <PlatformModulesSection modules={pageState.overview.modules} onReload={() => loadOverview(false)} />
     </div>
   )
 }

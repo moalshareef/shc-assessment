@@ -1,5 +1,15 @@
 import { supabase } from '../lib/supabase'
-import type { PlatformAdminOverview } from '../types/platformAdmin'
+import type {
+  PlatformAdminOverview,
+  PlatformModule,
+} from '../types/platformAdmin'
+import {
+  createPlatformModuleManagementApi,
+  mapPlatformModule,
+  type PlatformAdminRpcCaller,
+} from '../features/platform-admin/platformModulesApi'
+
+export { PlatformModuleConflictError } from '../features/platform-admin/platformModulesApi'
 
 export class PlatformAdminSessionExpiredError extends Error {
   constructor() {
@@ -18,6 +28,11 @@ async function getCurrentUser() {
   return data.user
 }
 
+const supabaseRpc: PlatformAdminRpcCaller = async (functionName, args) => {
+  const { data, error } = await supabase.rpc(functionName, args)
+  return { data, error }
+}
+
 export async function currentUserIsSystemOwner(): Promise<boolean> {
   await getCurrentUser()
 
@@ -29,13 +44,23 @@ export async function currentUserIsSystemOwner(): Promise<boolean> {
   return data === true
 }
 
-async function getVisibleRowCount(table: 'platform_modules' | 'organizations' | 'platform_role_assignments') {
+async function getVisibleRowCount(table: 'organizations' | 'platform_role_assignments') {
   const { count, error } = await supabase
     .from(table)
     .select('id', { count: 'exact', head: true })
 
   if (error) throw error
   return count ?? 0
+}
+
+async function getVisibleModules(): Promise<PlatformModule[]> {
+  const { data, error } = await supabase
+    .from('platform_modules')
+    .select('id, module_code, module_name_ar, description, module_status, created_at, updated_at, lock_version, disabled_reason')
+    .order('created_at', { ascending: false })
+
+  if (error) throw error
+  return (data ?? []).map(mapPlatformModule)
 }
 
 export async function getPlatformAdminOverview(): Promise<PlatformAdminOverview | null> {
@@ -54,7 +79,7 @@ export async function getPlatformAdminOverview(): Promise<PlatformAdminOverview 
       .select('full_name, is_active')
       .eq('id', user.id)
       .single(),
-    getVisibleRowCount('platform_modules'),
+    getVisibleModules(),
     getVisibleRowCount('organizations'),
     getVisibleRowCount('platform_role_assignments'),
   ])
@@ -68,9 +93,16 @@ export async function getPlatformAdminOverview(): Promise<PlatformAdminOverview 
       isActive: profileResult.data.is_active === true,
     },
     counts: {
-      modules,
+      modules: modules.length,
       organizations,
       roleAssignments,
     },
+    modules,
   }
 }
+
+const platformModuleManagementApi = createPlatformModuleManagementApi(supabaseRpc, currentUserIsSystemOwner)
+
+export const createPlatformModule = platformModuleManagementApi.createModule
+export const updatePlatformModule = platformModuleManagementApi.updateModule
+export const changePlatformModuleStatus = platformModuleManagementApi.changeModuleStatus
