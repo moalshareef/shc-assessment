@@ -110,7 +110,7 @@ AND module_specific_rule_allows(action, record)
 - إدارة بيانات الجهات غير الحساسة وفق `lock_version`.
 - فرز طلبات الصلاحية ونقلها إلى `under_review` دون اعتماد أو تنفيذ.
 - معالجة تنبيهات انتهاء الصلاحية وإعادة الإسناد بعد قرار مالك النظام.
-- ممنوع عليه رؤية أسرار الدعوات، استدعاء Auth Admin مباشرة، منح دور منصي، أو تعديل `system_owner`.
+- ممنوع عليه رؤية أسرار الدعوات، استدعاء Auth Admin مباشرة، منح أي دور منصي، أو رؤية/تعديل/إلغاء `system_owner`. منح `auditor/viewer` يبقى حصريًا لـ`system_owner` في هذه المرحلة المحافظة.
 
 ## 6. حالات الصلاحية والتواريخ
 
@@ -122,6 +122,21 @@ AND module_specific_rule_allows(action, record)
 | `revoked` | ألغيت بقرار وسبب؛ لا تعاد تفعيلها، بل ينشأ Grant جديد. |
 
 يجب ألا يعتمد RLS على `status='active'` فقط؛ يفحص `starts_at/ends_at` في كل قرار.
+
+### 6.1 ضوابط `system_owner`
+
+- يوجد مالك فعال واحد فقط مبدئيًا، ولا يقبل دوره `ends_at` حتى لا تنتهي آخر سلطة إدارية تلقائيًا.
+- لا يستطيع منح نفسه دورًا أو تعديل تواريخ دوره.
+- الاستثناء الوحيد للتعديل الذاتي هو التخلي المنضبط عبر تسليم ذري إلى UUID مختلف يملك Profile نشطًا.
+- التسليم يلغي السجل القديم وينشئ السجل البديل في معاملة واحدة، مع قفل ثابت وAudit للقيمتين.
+- لا يسمح بإلغاء آخر مالك بلا بديل، ولا يسمح بإنشاء مالك ثانٍ عبر RPC المنح العادية.
+
+### 6.2 Bootstrap الأول
+
+- ينشأ الحساب لاحقًا بدعوة Auth آمنة، مستقلًا عن الحساب التشغيلي الحالي.
+- Bootstrap لا يقبل بريدًا ولا كلمة مرور؛ يقبل `profiles.id`/`auth.users.id` محددًا صراحة في Migration تشغيلية يراجعها المالك.
+- الدالة داخل `private`، `SECURITY DEFINER` و`search_path=''`، ولا تمنح لـ`anon` أو`authenticated`.
+- تتوقف إن كان هناك مالك فعال، وتكتب Audit، ثم تُسقط الدالة في المعاملة نفسها بعد نجاح الإنشاء.
 
 ## 7. تخصيص الصلاحيات الاستثنائي
 
@@ -144,7 +159,8 @@ AND module_specific_rule_allows(action, record)
 
 ## 9. RLS/RBAC التصميمي
 
-- Helper داخلي يجيب: `has_platform_role(required_roles)`.
+- Helpers الداخلية: `platform_user_has_role` و`platform_user_is_system_owner` و`platform_user_is_active_admin`.
+- غلاف القراءة العام `platform_current_user_has_role` لا يقبل `user_id` ويعيد قرار المستخدم الحالي فقط؛ وجوده مقصود لاستخدام RLS دون منح تنفيذ الدوال الداخلية.
 - Helper داخلي يجيب: `has_module_permission(module_id, organization_id, permission_code, record_context)`.
 - الدوال الداخلية في `private` وبأسماء مؤهلة و`search_path=''` وصلاحيات تنفيذ دنيا.
 - العمليات متعددة الصفوف تستخدم RPC ذرية مع ترتيب قفل ثابت.
@@ -159,3 +175,5 @@ AND module_specific_rule_allows(action, record)
 - Permissions المحجوزة تشمل على الأقل: `system_owner.manage` و`users.invite` و`access.grant` و`modules.activate` و`modules.disable`، ولا تقبل Override.
 - مدير الموديل مسؤول عن الإسناد اليومي داخل نطاق موديله، بينما يملك `system_owner` تدخلًا شاملًا للإسناد وإعادة الإسناد عند الحاجة.
 - `system_owner` حساب جديد مستقل عن الحساب التشغيلي الحالي، ولا يملك مسارًا للدخول نيابة عن المستخدمين.
+- أدوار المنصة لا تخزن في `profiles.role` ولا تستنتج من `workspace_members.owner` أو Auth Metadata.
+- تمنع نوافذ أدوار المنصة المتداخلة للمستخدم نفسه، ويعتمد القرار على الوقت الفعلي حتى لو تأخر تحديث `status` المخزن.
