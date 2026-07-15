@@ -17,9 +17,10 @@ interface SidebarProps {
   activeView: ViewName
   isWorkspaceView: boolean
   onNavigate: (view: ViewName) => void
+  isSystemOwner: boolean
 }
 
-export function Sidebar({ open, activeView, isWorkspaceView, onNavigate }: SidebarProps) {
+export function Sidebar({ open, activeView, isWorkspaceView, onNavigate, isSystemOwner }: SidebarProps) {
   return (
     <aside className={`sidebar ${open ? 'open' : ''}`}>
       <div className="brand">
@@ -35,12 +36,19 @@ export function Sidebar({ open, activeView, isWorkspaceView, onNavigate }: Sideb
             <Icon name={icon} /><span>{label}</span>
           </button>
         ))}
+        {isSystemOwner ? (
+          <button className={`nav-item ${activeView === 'platformAdmin' ? 'active' : ''}`} onClick={() => onNavigate('platformAdmin')}>
+            <Icon name="shield" /><span>الإدارة المركزية</span>
+          </button>
+        ) : null}
       </nav>
       <div className="sidebar-footer">
         <div className="user-avatar">م</div>
-        <div><strong>محمد الشريف</strong><span>مالك مساحة العمل</span></div>
+        <div>
+          <strong>{isSystemOwner ? 'مالك النظام الرئيسي' : 'محمد الشريف'}</strong>
+          <span>{isSystemOwner ? 'مالك النظام' : 'مالك مساحة العمل'}</span>
+        </div>
       </div>
     </aside>
   )
 }
-

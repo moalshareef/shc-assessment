@@ -1,2 +1,1 @@
-export type ViewName = 'home' | 'workspace' | 'pillars' | 'pillarDetail'
-
+export type ViewName = 'home' | 'workspace' | 'pillars' | 'pillarDetail' | 'platformAdmin'

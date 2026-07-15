@@ -6,17 +6,30 @@ import { HomePage } from './features/home/HomePage'
 import { WorkspacesPage } from './features/workspaces/WorkspacesPage'
 import { PillarsPage } from './features/spending-efficiency/PillarsPage'
 import { PillarDetailsPage } from './features/spending-efficiency/PillarDetailsPage'
+import { PlatformAdminPage } from './features/platform-admin/PlatformAdminPage'
 import { supabase } from './lib/supabase'
+import { currentUserIsSystemOwner } from './services/platformAdminService'
 import type { ViewName } from './app/types'
 import type { SupabasePillar } from './types/spendingEfficiency'
 
+function getViewFromLocation(): ViewName {
+  const normalizedPath = window.location.pathname.replace(/\/+$/, '')
+  return normalizedPath.endsWith('/platform-admin') ? 'platformAdmin' : 'home'
+}
+
+function getPathForView(view: ViewName): string {
+  const basePath = import.meta.env.BASE_URL.replace(/\/+$/, '')
+  return view === 'platformAdmin' ? `${basePath}/platform-admin` : `${basePath}/`
+}
+
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeView, setActiveView] = useState<ViewName>('home')
+  const [activeView, setActiveView] = useState<ViewName>(getViewFromLocation)
   const [session, setSession] = useState<Session | null>(null)
   const [authReady, setAuthReady] = useState(false)
   const [signOutLoading, setSignOutLoading] = useState(false)
   const [selectedPillar, setSelectedPillar] = useState<SupabasePillar | null>(null)
+  const [isSystemOwner, setIsSystemOwner] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -42,7 +55,42 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!session) {
+      setIsSystemOwner(false)
+      return
+    }
+
+    let active = true
+    void currentUserIsSystemOwner()
+      .then((hasRole) => {
+        if (active) setIsSystemOwner(hasRole)
+      })
+      .catch(() => {
+        if (active) setIsSystemOwner(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [session])
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveView(getViewFromLocation())
+      setSelectedPillar(null)
+      setSidebarOpen(false)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
   const handleNavigate = (view: ViewName) => {
+    const nextPath = getPathForView(view)
+    if (view === 'platformAdmin' || activeView === 'platformAdmin') {
+      window.history.pushState({}, '', nextPath)
+    }
     setSidebarOpen(false)
     setActiveView(view)
     setSelectedPillar(null)
@@ -93,8 +141,11 @@ export default function App() {
       onNavigate={handleNavigate}
       onSignOut={handleSignOut}
       signOutLoading={signOutLoading}
+      isSystemOwner={isSystemOwner}
     >
-      {activeView === 'workspace' ? (
+      {activeView === 'platformAdmin' ? (
+        <PlatformAdminPage />
+      ) : activeView === 'workspace' ? (
         <WorkspacesPage onOpenFinancialControl={() => handleNavigate('home')} onOpenPillars={handleOpenPillars} />
       ) : activeView === 'pillars' ? (
         <PillarsPage onBack={handleOpenWorkspace} onOpenDetails={handleOpenPillarDetails} />
