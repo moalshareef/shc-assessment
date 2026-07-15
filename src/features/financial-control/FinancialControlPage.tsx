@@ -799,16 +799,14 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                     <div className="detail-item"><span>الإنجاز</span><strong>{action.progress_percent}%</strong></div>
                     <div className="detail-item"><span>نسخة السجل (lock_version)</span><strong>{action.lock_version}</strong></div>
 
-                    {selectedFinding.reference_code === '1.1' ? (
-                      <DocumentReferencesSection
-                        action={action}
-                        findingStatus={selectedFinding.workflow_status}
-                        roles={currentRoles}
-                        currentUserId={currentUserId}
-                        busy={mutationKey !== null}
-                        onRun={runMutation}
-                      />
-                    ) : null}
+                    <DocumentReferencesSection
+                      action={action}
+                      findingStatus={selectedFinding.workflow_status}
+                      roles={currentRoles}
+                      currentUserId={currentUserId}
+                      busy={mutationKey !== null}
+                      onRun={runMutation}
+                    />
 
                     <div style={{ display: 'grid', gap: 10, paddingTop: 8 }}>
                       <h3 style={{ margin: 0, fontSize: 16 }}>تحديث التنفيذ</h3>
@@ -1043,7 +1041,11 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                 ))}
               </tbody></table></div>
             ) : (
-              <p style={{ color: 'var(--muted)', padding: 16, textAlign: 'center' }}>لا توجد ملاحظات مطابقة لمعايير البحث والتصفية.</p>
+              <p style={{ color: 'var(--muted)', padding: 16, textAlign: 'center' }}>
+                {data.findings.length === 0
+                  ? 'لا توجد سجلات مسندة إليك حاليًا.'
+                  : 'لا توجد ملاحظات مطابقة لمعايير البحث والتصفية.'}
+              </p>
             )}
           </section>
         </>

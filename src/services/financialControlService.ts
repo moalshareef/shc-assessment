@@ -60,7 +60,17 @@ function toMutationError(error: SupabaseErrorLike | null, fallbackMessage: strin
   }
 
   if (error?.code === '42501') {
-    return new FinancialControlServiceError('permission', 'لا تملك الصلاحية اللازمة لتنفيذ هذا الإجراء.')
+    return new FinancialControlServiceError('permission', 'ليس لديك صلاحية لتنفيذ هذا الإجراء.')
+  }
+
+  if (
+    error?.code === '23514'
+    && message.toLocaleLowerCase().includes('document reference')
+  ) {
+    return new FinancialControlServiceError(
+      'validation',
+      'لا يمكن الرفع للمدير قبل إضافة مستند مرجعي واحد على الأقل.',
+    )
   }
 
   return new FinancialControlServiceError('mutation', error?.message || fallbackMessage)
@@ -346,19 +356,12 @@ export async function recordOfficialReply(input: RecordOfficialReplyInput): Prom
 }
 
 export async function addFollowUpComment(input: AddFollowUpCommentInput): Promise<void> {
-  const authorUserId = await getAuthenticatedUserId()
   const body = requireText(input.body, 'نص ملاحظة المتابعة')
-  const { error } = await supabase.from('finding_comments').insert({
-    workspace_id: input.workspaceId,
-    finding_id: input.findingId,
-    corrective_action_id: null,
-    parent_comment_id: null,
-    comment_type: 'internal',
-    visibility: 'workspace',
-    body,
-    author_user_id: authorUserId,
-    supersedes_comment_id: null,
-    created_at: input.activityDate,
+  const { error } = await supabase.rpc('financial_control_add_follow_up_comment', {
+    p_finding_id: input.findingId,
+    p_corrective_action_id: null,
+    p_activity_at: input.activityDate,
+    p_body: body,
   })
 
   if (error) throw toMutationError(error, 'تعذر إضافة ملاحظة المتابعة.')
@@ -376,52 +379,17 @@ export async function updateCorrectiveActionProgress(
     throw new FinancialControlServiceError('validation', 'ملاحظة التحديث مطلوبة قبل الحفظ.')
   }
 
-  const { data: userData, error: userError } = await supabase.auth.getUser()
-  if (userError || !userData.user) {
-    throw new FinancialControlServiceError(
-      'authentication',
-      'تعذر التحقق من جلسة المستخدم الحالية. يرجى تسجيل الدخول مجددًا.',
-    )
-  }
-
-  const { data, error } = await supabase
-    .from('corrective_actions')
-    .update({
-      progress_percent: input.progressPercent,
-      execution_details: executionDetails,
-      updated_by: userData.user.id,
-      updated_at: new Date().toISOString(),
-      lock_version: input.expectedLockVersion + 1,
-    })
-    .eq('id', input.correctiveActionId)
-    .eq('lock_version', input.expectedLockVersion)
-    .select('id, lock_version')
-    .maybeSingle()
+  const { error } = await supabase.rpc('financial_control_update_action_progress', {
+    p_corrective_action_id: input.correctiveActionId,
+    p_progress_percent: input.progressPercent,
+    p_execution_details: executionDetails,
+    p_expected_lock_version: input.expectedLockVersion,
+  })
 
   if (error) {
     throw toMutationError(error, 'تعذر حفظ نسبة الإنجاز وملاحظة التحديث.')
   }
 
-  if (!data) {
-    const { data: current, error: currentError } = await supabase
-      .from('corrective_actions')
-      .select('lock_version')
-      .eq('id', input.correctiveActionId)
-      .maybeSingle()
-
-    if (currentError) {
-      throw toMutationError(currentError, 'تعذر التحقق من النسخة الحالية للإجراء التصحيحي.')
-    }
-
-    if (current && current.lock_version !== input.expectedLockVersion) {
-      throw new FinancialControlServiceError(
-        'conflict',
-        'عُدّل السجل من مستخدم آخر. حدّث الصفحة ثم أعد المحاولة.',
-      )
-    }
-
-    throw new FinancialControlServiceError('permission', 'لم يتم الحفظ. تحقق من صلاحيتك على الإجراء التصحيحي.')
-  }
 }
 
 export async function updateCorrectiveActionProgressAndStart(
