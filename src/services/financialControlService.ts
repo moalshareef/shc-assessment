@@ -26,6 +26,7 @@ import type {
   UpdateCorrectiveActionProgressInput,
 } from '../types/financialControl'
 import { FinancialControlServiceError } from '../types/financialControl'
+import { listCurrentOperationalAccess } from './platformUserAccessService'
 
 const FINANCIAL_CONTROL_WORKSPACE_CODE = 'financial-control'
 
@@ -113,24 +114,27 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
   }
 
   const workspace = workspaceData as FinancialControlWorkspace
-  const { data: membershipData, error: membershipError } = await supabase
-    .from('financial_control_members')
-    .select('id, workspace_id, user_id, role, is_active, starts_at, ends_at')
-    .eq('workspace_id', workspace.id)
-    .eq('user_id', userData.user.id)
-    .eq('is_active', true)
-
-  if (membershipError) {
+  let operationalAccess
+  try {
+    operationalAccess = await listCurrentOperationalAccess()
+  } catch {
     throw new FinancialControlServiceError(
       'membership',
       'تعذر التحقق من عضوية الرقابة المالية. تحقق من الاتصال والصلاحيات.',
     )
   }
 
-  const now = Date.now()
-  const memberships = (membershipData as FinancialControlMembership[]).filter(
-    (membership) => membership.ends_at === null || new Date(membership.ends_at).getTime() > now,
-  )
+  const memberships: FinancialControlMembership[] = operationalAccess
+    .filter((access) => access.workspaceId === workspace.id && access.workspaceCode === FINANCIAL_CONTROL_WORKSPACE_CODE)
+    .map((access, index) => ({
+      id: `${access.source}:${index}`,
+      workspace_id: access.workspaceId,
+      user_id: userData.user.id,
+      role: access.roleCode === 'financial_control_manager' ? 'manager' : 'action_owner',
+      is_active: true,
+      starts_at: new Date(0).toISOString(),
+      ends_at: null,
+    }))
 
   if (memberships.length === 0) {
     throw new FinancialControlServiceError(

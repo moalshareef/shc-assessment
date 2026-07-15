@@ -5,6 +5,7 @@ import type { PlatformAdminOverview } from '../../types/platformAdmin'
 import { PlatformModulesSection } from './PlatformModulesSection'
 import { PlatformOrganizationsSection } from './PlatformOrganizationsSection'
 import { PlatformUsersSection } from './PlatformUsersSection'
+import { PlatformUserAccessSection } from './PlatformUserAccessSection'
 import './platformAdmin.css'
 
 type PageState =
@@ -61,6 +62,7 @@ export function PlatformAdminPage() {
       void import('./platformModulesScenario.dev')
       void import('./platformOrganizationsScenario.dev')
       void import('./platformUsersScenario.dev')
+      void import('./platformUserAccessScenario.dev')
     }
   }, [])
 
@@ -178,6 +180,7 @@ export function PlatformAdminPage() {
       <PlatformModulesSection modules={pageState.overview.modules} onReload={() => loadOverview(false)} />
       <PlatformOrganizationsSection organizations={pageState.overview.organizations} onReload={() => loadOverview(false)} />
       <PlatformUsersSection organizations={pageState.overview.organizations} />
+      <PlatformUserAccessSection organizations={pageState.overview.organizations} />
     </div>
   )
 }

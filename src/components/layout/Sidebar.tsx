@@ -18,9 +18,10 @@ interface SidebarProps {
   isWorkspaceView: boolean
   onNavigate: (view: ViewName) => void
   isSystemOwner: boolean
+  hasOperationalAccess: boolean
 }
 
-export function Sidebar({ open, activeView, isWorkspaceView, onNavigate, isSystemOwner }: SidebarProps) {
+export function Sidebar({ open, activeView, isWorkspaceView, onNavigate, isSystemOwner, hasOperationalAccess }: SidebarProps) {
   return (
     <aside className={`sidebar ${open ? 'open' : ''}`}>
       <div className="brand">
@@ -31,7 +32,7 @@ export function Sidebar({ open, activeView, isWorkspaceView, onNavigate, isSyste
         </div>
       </div>
       <nav aria-label="القائمة الرئيسية">
-        {navItems.map(({ label, icon, view }) => (
+        {navItems.filter(({ view }) => view !== 'workspace' || hasOperationalAccess).map(({ label, icon, view }) => (
           <button className={`nav-item ${view === 'workspace' ? (isWorkspaceView ? 'active' : '') : activeView === view ? 'active' : ''}`} key={label} onClick={() => onNavigate(view)}>
             <Icon name={icon} /><span>{label}</span>
           </button>

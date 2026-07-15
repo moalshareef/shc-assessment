@@ -11,8 +11,10 @@ import { PlatformAdminPage } from './features/platform-admin/PlatformAdminPage'
 import { supabase } from './lib/supabase'
 import { currentUserIsSystemOwner } from './services/platformAdminService'
 import { currentProfileAccessState } from './services/platformUserAdminService'
+import { listCurrentOperationalAccess } from './services/platformUserAccessService'
 import type { ViewName } from './app/types'
 import type { SupabasePillar } from './types/spendingEfficiency'
+import type { CurrentOperationalAccess } from './types/platformUserAccess'
 
 function getViewFromLocation(): ViewName {
   const normalizedPath = window.location.pathname.replace(/\/+$/, '')
@@ -35,6 +37,7 @@ export default function App() {
   const [profileAccessReady, setProfileAccessReady] = useState(false)
   const [profileActive, setProfileActive] = useState(false)
   const [mustChangePassword, setMustChangePassword] = useState(false)
+  const [operationalAccess, setOperationalAccess] = useState<CurrentOperationalAccess[]>([])
 
   useEffect(() => {
     let mounted = true
@@ -65,32 +68,28 @@ export default function App() {
       setIsSystemOwner(false)
       setProfileActive(false)
       setMustChangePassword(false)
+      setOperationalAccess([])
       setProfileAccessReady(true)
       return
     }
 
     let active = true
     setProfileAccessReady(false)
-    void currentProfileAccessState()
-      .then((access) => {
-        if (active) {
-          setProfileActive(access.isActive)
-          setMustChangePassword(access.mustChangePassword)
-        }
-      })
-      .catch(() => {
-        if (active) setProfileActive(false)
-      })
-      .finally(() => {
-        if (active) setProfileAccessReady(true)
-      })
-    void currentUserIsSystemOwner()
-      .then((hasRole) => {
-        if (active) setIsSystemOwner(hasRole)
-      })
-      .catch(() => {
-        if (active) setIsSystemOwner(false)
-      })
+    void Promise.all([
+      currentProfileAccessState(),
+      currentUserIsSystemOwner().catch(() => false),
+      listCurrentOperationalAccess().catch(() => []),
+    ]).then(([access, hasRole, nextOperationalAccess]) => {
+      if (!active) return
+      setProfileActive(access.isActive)
+      setMustChangePassword(access.mustChangePassword)
+      setIsSystemOwner(hasRole)
+      setOperationalAccess(nextOperationalAccess)
+    }).catch(() => {
+      if (active) setProfileActive(false)
+    }).finally(() => {
+      if (active) setProfileAccessReady(true)
+    })
 
     return () => {
       active = false
@@ -175,6 +174,17 @@ export default function App() {
   }
 
   const isWorkspaceView = activeView === 'workspace' || activeView === 'pillars' || activeView === 'pillarDetail'
+  const allowedWorkspaceCodes = [...new Set(operationalAccess.map((access) => access.workspaceCode))]
+  const hasOperationalAccess = allowedWorkspaceCodes.length > 0
+  const hasFinancialControlAccess = allowedWorkspaceCodes.includes('financial-control')
+  const hasSpendingEfficiencyAccess = allowedWorkspaceCodes.includes('spending-efficiency')
+
+  const noOperationalAccess = (
+    <section className="panel" role="status" style={{ display: 'grid', gap: 12, justifyItems: 'center', textAlign: 'center', padding: 32 }}>
+      <h1>لا توجد لديك صلاحيات تشغيلية حتى الآن.</h1>
+      <p>تواصل مع مالك النظام لمنحك دورًا داخل مساحة العمل المناسبة.</p>
+    </section>
+  )
 
   return (
     <AppLayout
@@ -187,17 +197,18 @@ export default function App() {
       onSignOut={handleSignOut}
       signOutLoading={signOutLoading}
       isSystemOwner={isSystemOwner}
+      hasOperationalAccess={hasOperationalAccess}
     >
       {activeView === 'platformAdmin' ? (
         <PlatformAdminPage />
       ) : activeView === 'workspace' ? (
-        <WorkspacesPage onOpenFinancialControl={() => handleNavigate('home')} onOpenPillars={handleOpenPillars} />
+        hasOperationalAccess ? <WorkspacesPage onOpenFinancialControl={() => handleNavigate('home')} onOpenPillars={handleOpenPillars} allowedWorkspaceCodes={allowedWorkspaceCodes} /> : noOperationalAccess
       ) : activeView === 'pillars' ? (
-        <PillarsPage onBack={handleOpenWorkspace} onOpenDetails={handleOpenPillarDetails} />
+        hasSpendingEfficiencyAccess ? <PillarsPage onBack={handleOpenWorkspace} onOpenDetails={handleOpenPillarDetails} /> : noOperationalAccess
       ) : activeView === 'pillarDetail' && selectedPillar ? (
-        <PillarDetailsPage pillar={selectedPillar} onBack={handleOpenPillars} />
+        hasSpendingEfficiencyAccess ? <PillarDetailsPage pillar={selectedPillar} onBack={handleOpenPillars} /> : noOperationalAccess
       ) : (
-        <HomePage onOpenWorkspace={handleOpenWorkspace} />
+        hasFinancialControlAccess ? <HomePage onOpenWorkspace={handleOpenWorkspace} /> : hasOperationalAccess ? <WorkspacesPage onOpenFinancialControl={() => handleNavigate('home')} onOpenPillars={handleOpenPillars} allowedWorkspaceCodes={allowedWorkspaceCodes} /> : noOperationalAccess
       )}
     </AppLayout>
   )

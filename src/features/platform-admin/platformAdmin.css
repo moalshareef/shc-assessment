@@ -480,6 +480,34 @@
   opacity: .58;
 }
 
+.platform-access-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.platform-access-table {
+  width: 100%;
+  min-width: 1050px;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.platform-access-table th,
+.platform-access-table td {
+  padding: 13px 12px;
+  text-align: right;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.platform-access-table th { color: var(--muted); background: #f7f9fb; font-size: .84rem; }
+.platform-access-table td strong,
+.platform-access-table td small { display: block; }
+.platform-access-table td small { margin-top: 5px; color: var(--muted); }
+.platform-access-actions { display: flex; gap: 7px; }
+.platform-modules-empty { padding: 28px; text-align: center; color: var(--muted); border: 1px dashed var(--border); border-radius: 12px; }
+
 @media (max-width: 820px) {
   .platform-owner-card {
     grid-template-columns: auto minmax(0, 1fr);

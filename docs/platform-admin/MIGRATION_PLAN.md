@@ -248,6 +248,19 @@ canAccessModule(user, module, organization, permission, record)
 - لا تعديل لقاعدة البيانات أو Supabase.
 - لا تطبيق Migration أو Seed؛ مسودتا المرحلة الثانية محليتان فقط واختبرتا داخل معاملات منتهية بـ`ROLLBACK`.
 - لا تعديل `profiles/workspaces/workspace_members/financial_control_members`.
+
+## مرحلة الصلاحيات التشغيلية المركزية
+
+1. إنشاء `user_module_access` بلا بيانات تأسيسية، مع FKs وفهارس جزئية وRLS مفروض ومنع الكتابة المباشرة.
+2. إنشاء Helpers داخل `private` للتحقق من المالك ومن النفاذ الفعال زمنيًا، دون منح تنفيذها للعميل.
+3. إنشاء RPCs عامة للعرض والمنح والتعديل والسحب، ومنحها لـ`authenticated` فقط مع تحقق `system_owner` داخل كل عملية.
+4. دمج القراءة المركزية في Helpers الرقابة المالية و`can_access_workspace` مع الحفاظ على العضويات القديمة وACL الخاصة بدوال RLS.
+5. اختبار المنح والتعديل والسحب والانتهاء والتدقيق بصلاحيات مالك/مستخدم عادي داخل معاملة تنتهي بـ`ROLLBACK`.
+6. تطبيق Migration فقط بعد ثبات الأعداد: 3 Workspaces، 33 ملاحظة، 33 إجراء، و7 ركائز؛ ولا ينشأ أي Grant دائم في هذه المرحلة.
+
+الملفات المطبقة لهذه الحزمة: `platform_user_operational_access_draft.sql` للبنية وRPCs والتكامل، و`platform_user_operational_access_fk_indexes_draft.sql` لفهارس FKs التي كشفها Advisor، و`platform_user_operational_access_expiry_audit_draft.sql` لتدقيق تحويل السجل المنتهي قبل منحه من جديد. جميعها طبقت دون إدخال صف في `user_module_access`.
+
+سبب Migration: `workspace_members` لا يحمل جهة أو نطاقًا أو نافذة زمنية، و`financial_control_members` يسمح بأكثر من دور ولا يحمل `lock_version` أو حالة تاريخية، لذلك لا يحقق أي منهما النموذج المعتمد دون تعديل خطر لبنية تشغيلية قائمة.
 - لا تغيير لصلاحيات المستخدم الحالي.
 - لا إنشاء `system_owner` ولا تحويل Workspace Owner قديم إلى دور منصة.
 - لا تعطيل موديل أو مستخدم.

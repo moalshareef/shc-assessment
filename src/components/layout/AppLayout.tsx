@@ -14,13 +14,14 @@ interface AppLayoutProps {
   onSignOut: () => void
   signOutLoading: boolean
   isSystemOwner: boolean
+  hasOperationalAccess: boolean
 }
 
-export function AppLayout({ children, sidebarOpen, onSidebarOpen, onSidebarClose, activeView, isWorkspaceView, onNavigate, onSignOut, signOutLoading, isSystemOwner }: AppLayoutProps) {
+export function AppLayout({ children, sidebarOpen, onSidebarOpen, onSidebarClose, activeView, isWorkspaceView, onNavigate, onSignOut, signOutLoading, isSystemOwner, hasOperationalAccess }: AppLayoutProps) {
   return (
     <div className="app-shell" dir="rtl">
       {sidebarOpen && <button className="overlay" aria-label="إغلاق القائمة" onClick={onSidebarClose} />}
-      <Sidebar open={sidebarOpen} activeView={activeView} isWorkspaceView={isWorkspaceView} onNavigate={onNavigate} isSystemOwner={isSystemOwner} />
+      <Sidebar open={sidebarOpen} activeView={activeView} isWorkspaceView={isWorkspaceView} onNavigate={onNavigate} isSystemOwner={isSystemOwner} hasOperationalAccess={hasOperationalAccess} />
       <main className="content">
         <Header onSidebarOpen={onSidebarOpen} onSignOut={onSignOut} signOutLoading={signOutLoading} />
         <section className="page">{children}</section>
