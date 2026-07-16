@@ -379,7 +379,7 @@ export async function updateCorrectiveActionProgress(
     throw new FinancialControlServiceError('validation', 'ملاحظة التحديث مطلوبة قبل الحفظ.')
   }
 
-  const { error } = await supabase.rpc('financial_control_update_action_progress', {
+  const { data, error } = await supabase.rpc('financial_control_update_action_progress', {
     p_corrective_action_id: input.correctiveActionId,
     p_progress_percent: input.progressPercent,
     p_execution_details: executionDetails,
@@ -388,6 +388,16 @@ export async function updateCorrectiveActionProgress(
 
   if (error) {
     throw toMutationError(error, 'تعذر حفظ نسبة الإنجاز وملاحظة التحديث.')
+  }
+
+  const savedProgress = Number(
+    (data as { progress_percent?: number | string } | null)?.progress_percent,
+  )
+  if (!Number.isFinite(savedProgress) || savedProgress !== input.progressPercent) {
+    throw new FinancialControlServiceError(
+      'mutation',
+      'لم تُحفظ نسبة الإنجاز بالقيمة المطلوبة. تم تحديث البيانات، أعد المحاولة.',
+    )
   }
 
 }

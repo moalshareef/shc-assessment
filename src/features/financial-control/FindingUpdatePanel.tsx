@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   addFollowUpComment,
   recordOfficialReply,
@@ -73,6 +73,7 @@ export function FindingUpdatePanel({
   const [obstacles, setObstacles] = useState('')
   const [progress, setProgress] = useState(String(finding.corrective_actions[0]?.progress_percent ?? 0))
   const [actionId, setActionId] = useState(finding.corrective_actions[0]?.id ?? '')
+  const progressInputRef = useRef<HTMLInputElement>(null)
 
   const canEdit = roles.some((role) => ['owner', 'manager', 'specialist', 'action_owner'].includes(role))
   const trackingProgress = finding.corrective_actions.length > 0
@@ -136,7 +137,7 @@ export function FindingUpdatePanel({
     }
 
     if (kind === 'progress' && selectedAction && text.trim()) {
-      const progressPercent = Number(progress)
+      const progressPercent = Number(progressInputRef.current?.value ?? progress)
       const executionDetails = obstacles.trim()
         ? `وصف التقدم: ${text.trim()}\nالعوائق: ${obstacles.trim()}`
         : `وصف التقدم: ${text.trim()}\nالعوائق: لا توجد عوائق مسجلة.`
@@ -256,7 +257,7 @@ export function FindingUpdatePanel({
               {finding.corrective_actions.map((action) => <option value={action.id} key={action.id}>الإجراء {action.action_no}</option>)}
             </select>
           </label>
-          <label><span>النسبة من 0 إلى 100</span><input type="number" min="0" max="100" value={progress} onChange={(event) => setProgress(event.target.value)} style={fieldStyle}/></label>
+          <label><span>النسبة من 0 إلى 100</span><input ref={progressInputRef} type="number" min="0" max="100" value={progress} onChange={(event) => setProgress(event.target.value)} style={fieldStyle}/></label>
         </>
       ) : null}
 
