@@ -424,12 +424,18 @@ export async function transitionFinancialControlFinding(input: TransitionFinding
     throw new FinancialControlServiceError('validation', 'سبب الإرجاع أو إعادة الفتح مطلوب.')
   }
 
-  const { error } = await supabase.rpc('financial_control_transition_finding', {
-    p_finding_id: input.findingId,
-    p_to_status: input.toStatus,
-    p_reason: reason,
-    p_expected_lock_version: input.expectedLockVersion,
-  })
+  const { error } = input.toStatus === 'under_manager_review'
+    ? await supabase.rpc('financial_control_begin_manager_review', {
+        p_finding_id: input.findingId,
+        p_reason: reason,
+        p_expected_lock_version: input.expectedLockVersion,
+      })
+    : await supabase.rpc('financial_control_transition_finding', {
+        p_finding_id: input.findingId,
+        p_to_status: input.toStatus,
+        p_reason: reason,
+        p_expected_lock_version: input.expectedLockVersion,
+      })
 
   if (error) {
     throw toMutationError(error, 'تعذر تنفيذ انتقال حالة الملاحظة.')

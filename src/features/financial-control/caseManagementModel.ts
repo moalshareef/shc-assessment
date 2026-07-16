@@ -168,7 +168,13 @@ export function caseWorkQueues(snapshot: CaseSnapshot, now = new Date()): CaseWo
   ].includes(snapshot.workflowStatus)) {
     queues.push('ready_to_submit')
   }
-  if (['submitted_for_manager_review', 'under_manager_review'].includes(snapshot.workflowStatus)) {
+  if (
+    ['submitted_for_manager_review', 'under_manager_review'].includes(snapshot.workflowStatus)
+    || (
+      allActionsSubmitted
+      && !['returned_for_revision', 'approved', 'closed'].includes(snapshot.workflowStatus)
+    )
+  ) {
     queues.push('manager_waiting')
   }
   if (snapshot.workflowStatus === 'approved') queues.push('ready_to_close')
@@ -190,7 +196,16 @@ export function nextCaseAction(snapshot: CaseSnapshot, roles: FinancialControlRo
   if (snapshot.workflowStatus === 'approved' && canManage) {
     return { code: 'close', label: 'إغلاق الملاحظة', reason: 'اعتمدت الملاحظة ولم تنفذ خطوة الإغلاق بعد.' }
   }
-  if (snapshot.workflowStatus === 'submitted_for_manager_review' && canManage) {
+  if (
+    canManage
+    && areAllCorrectiveActionsSubmitted(snapshot.correctiveActionStatuses)
+    && [
+      'imported_pending_review',
+      'not_started',
+      'in_progress',
+      'submitted_for_manager_review',
+    ].includes(snapshot.workflowStatus)
+  ) {
     return { code: 'start_manager_review', label: 'بدء مراجعة المدير', reason: 'رفع الموظف الملاحظة وتنتظر بدء مراجعة المدير.' }
   }
   if (snapshot.workflowStatus === 'under_manager_review' && canManage) {

@@ -112,6 +112,9 @@ export function runDevelopmentCaseScenario(): DevelopmentScenarioStep[] {
   results.push(snapshotStep('تحقق المختص من الإجراء', snapshot, [
     assert(nextCaseAction(snapshot, ['action_owner']).code === 'submit_to_manager', 'إظهار رفع الملاحظة بعد إرسال جميع الإجراءات للمدير.'),
     assert(caseWorkQueues(snapshot, TEST_NOW).includes('ready_to_submit'), 'نقل الملاحظة إلى جاهزة للرفع بعد إرسال الإجراءات.'),
+    assert(caseWorkQueues(snapshot, TEST_NOW).includes('manager_waiting'), 'إظهار الملاحظة للمدير فور رفع جميع الإجراءات.'),
+    assert(nextCaseAction(snapshot, ['manager']).code === 'start_manager_review', 'إظهار بدء مراجعة المدير للحالة الفنية القديمة.'),
+    assert(nextCaseAction(snapshot, ['action_owner']).code !== 'start_manager_review', 'عدم إظهار إجراء المدير للموظف.'),
   ]))
 
   snapshot.workflowStatus = 'submitted_for_manager_review'

@@ -94,9 +94,18 @@ interface ActionTransitionOption {
 }
 
 const findingTransitions: Partial<Record<FinancialControlFindingStatus, FindingTransitionOption[]>> = {
-  imported_pending_review: [{ to: 'in_progress', label: 'بدء المتابعة', roles: ['action_owner'] }],
-  not_started: [{ to: 'in_progress', label: 'نقل إلى قيد التنفيذ', roles: ['action_owner'] }],
-  in_progress: [{ to: 'submitted_for_manager_review', label: 'إرسال لمراجعة المدير', roles: ['action_owner'] }],
+  imported_pending_review: [
+    { to: 'in_progress', label: 'بدء المتابعة', roles: ['action_owner'] },
+    { to: 'under_manager_review', label: 'بدء مراجعة المدير', roles: ['owner', 'manager'] },
+  ],
+  not_started: [
+    { to: 'in_progress', label: 'نقل إلى قيد التنفيذ', roles: ['action_owner'] },
+    { to: 'under_manager_review', label: 'بدء مراجعة المدير', roles: ['owner', 'manager'] },
+  ],
+  in_progress: [
+    { to: 'submitted_for_manager_review', label: 'إرسال لمراجعة المدير', roles: ['action_owner'] },
+    { to: 'under_manager_review', label: 'بدء مراجعة المدير', roles: ['owner', 'manager'] },
+  ],
   submitted_for_manager_review: [{ to: 'under_manager_review', label: 'بدء مراجعة المدير', roles: ['owner', 'manager'] }],
   under_manager_review: [
     { to: 'returned_for_revision', label: 'إرجاع للتعديل', roles: ['owner', 'manager'] },
