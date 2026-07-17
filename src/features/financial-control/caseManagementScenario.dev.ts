@@ -7,6 +7,10 @@ import {
   validateCaseTransition,
 } from './caseManagementModel'
 import type { CaseSnapshot, CaseWorkQueueKey } from './caseManagementModel'
+import {
+  buildSimplifiedCaseViewModel,
+  simplifiedCaseQueues,
+} from './simplifiedCaseViewModel'
 
 export interface DevelopmentScenarioStep {
   step: string
@@ -18,7 +22,7 @@ export interface DevelopmentScenarioStep {
 }
 
 const TEST_NOW = new Date('2026-07-15T12:00:00+03:00')
-const roles = ['owner'] as const
+const roles = ['owner', 'action_owner'] as const
 
 function snapshotStep(step: string, snapshot: CaseSnapshot, checks: string[] = []): DevelopmentScenarioStep {
   return {
@@ -166,8 +170,80 @@ export function runDevelopmentCaseScenario(): DevelopmentScenarioStep[] {
   return results
 }
 
+function simplifiedModel(
+  snapshot: CaseSnapshot,
+  actor: 'employee' | 'manager' | 'viewer' = 'employee',
+  options: { hasEmployeeActivityAfterReturn?: boolean; hasCompleteExecutionDetails?: boolean } = {},
+) {
+  return buildSimplifiedCaseViewModel({
+    snapshot,
+    roles: actor === 'manager' ? ['manager'] : actor === 'employee' ? ['action_owner'] : ['viewer'],
+    isAssignedEmployee: actor === 'employee',
+    latestReturnReason: snapshot.workflowStatus === 'returned_for_revision'
+      ? 'يرجى استكمال التحقق وإضافة توضيح إضافي قبل الاعتماد.'
+      : null,
+    hasEmployeeActivityAfterReturn: options.hasEmployeeActivityAfterReturn,
+    hasCompleteExecutionDetails: options.hasCompleteExecutionDetails,
+  })
+}
+
+export function runSimplifiedCaseScenario() {
+  const base: CaseSnapshot = {
+    workflowStatus: 'imported_pending_review',
+    currentDueDate: '2027-06-30',
+    progress: 0,
+    correctiveActionStatuses: ['not_started'],
+    documentReferenceStatuses: [],
+    openActionDueDates: ['2027-06-30'],
+    sentEmailDates: [],
+    officialReplyDates: [],
+    lastActivityAt: '2026-07-15T08:00:00+03:00',
+  }
+  const original = JSON.stringify(base)
+  const checks = [
+    assert(simplifiedModel(base).primaryActionHandler === 'record_sent_email', 'الموظف قبل التواصل يرى تسجيل البريد كإجراء رئيسي.'),
+    assert(simplifiedModel({ ...base, sentEmailDates: ['2026-07-15T09:00:00+03:00'] }).primaryActionHandler === 'record_follow_up_or_reply', 'الموظف بانتظار الرد يرى تسجيل متابعة أو رد.'),
+    assert(simplifiedModel({ ...base, progress: 50, correctiveActionStatuses: ['in_progress'], sentEmailDates: ['2026-07-15T09:00:00+03:00'], officialReplyDates: ['2026-07-15T10:00:00+03:00'] }).primaryActionHandler === 'update_progress', 'الموظف عند 50% يرى تحديث التقدم.'),
+    assert(simplifiedModel({ ...base, progress: 100, correctiveActionStatuses: ['in_progress'], sentEmailDates: ['2026-07-15T09:00:00+03:00'], officialReplyDates: ['2026-07-15T10:00:00+03:00'] }).primaryActionHandler === 'open_document_references', 'الإنجاز 100% دون مرجع ينتقل إلى المستندات.'),
+    assert(simplifiedModel({ ...base, progress: 100, correctiveActionStatuses: ['in_progress'], documentReferenceStatuses: ['pending'], sentEmailDates: ['2026-07-15T09:00:00+03:00'], officialReplyDates: ['2026-07-15T10:00:00+03:00'] }).primaryActionHandler === 'submit_next_action', 'الإنجاز 100% مع مرجع يصبح جاهزًا للإرسال.'),
+    assert(simplifiedModel({ ...base, progress: 100, correctiveActionStatuses: ['submitted_for_manager_review'], documentReferenceStatuses: ['pending'], sentEmailDates: ['2026-07-15T09:00:00+03:00'] }).waitingForManager, 'بعد الإرسال تختفي إجراءات الموظف ويظهر انتظار المدير.'),
+    assert((() => {
+      const returned = simplifiedModel({ ...base, workflowStatus: 'returned_for_revision', progress: 100, correctiveActionStatuses: ['in_progress'], documentReferenceStatuses: ['approved'] })
+      return returned.currentStep === 2
+        && returned.primaryActionHandler === 'update_progress'
+        && returned.primaryActionLabel === 'استكمال التعديل'
+        && returned.returnReason === 'يرجى استكمال التحقق وإضافة توضيح إضافي قبل الاعتماد.'
+    })(), 'المعاد من المدير يعرض السبب والخطوة الثانية وزر استكمال التعديل.'),
+    assert(buildSimplifiedCaseViewModel({
+      snapshot: { ...base, workflowStatus: 'returned_for_revision', progress: 100, correctiveActionStatuses: ['submitted_for_manager_review'], documentReferenceStatuses: ['approved'] },
+      roles: ['owner', 'action_owner'],
+      isAssignedEmployee: true,
+      latestReturnReason: 'يرجى استكمال التحقق وإضافة توضيح إضافي قبل الاعتماد.',
+    }).primaryActionLabel === 'استكمال التعديل', 'الموظف المسند يرى استكمال التعديل حتى عند امتلاكه صلاحية إدارية إضافية.'),
+    assert(simplifiedModel(
+      { ...base, workflowStatus: 'returned_for_revision', progress: 100, correctiveActionStatuses: ['in_progress'], documentReferenceStatuses: ['approved'] },
+      'employee',
+      { hasEmployeeActivityAfterReturn: true, hasCompleteExecutionDetails: true },
+    ).primaryActionHandler === 'submit_next_action', 'بعد حفظ التعديل واستيفاء المتطلبات يظهر إعادة الإرسال للمدير.'),
+    assert(simplifiedModel({ ...base, progress: 100, correctiveActionStatuses: ['submitted_for_manager_review'], documentReferenceStatuses: ['pending'] }, 'manager').primaryActionHandler === 'start_manager_review', 'المدير قبل البدء يرى بدء المراجعة.'),
+    assert(simplifiedModel({ ...base, workflowStatus: 'under_manager_review', progress: 100, correctiveActionStatuses: ['submitted_for_manager_review'], documentReferenceStatuses: ['pending'] }, 'manager').primaryActionHandler === 'review_document_references', 'المدير يراجع المرجع المعلق أولًا.'),
+    assert(simplifiedModel({ ...base, workflowStatus: 'under_manager_review', progress: 100, correctiveActionStatuses: ['submitted_for_manager_review'], documentReferenceStatuses: ['approved'] }, 'manager').primaryActionHandler === 'approve_finding', 'بعد اعتماد المراجع يظهر قرار الملاحظة.'),
+    assert(simplifiedModel({ ...base, workflowStatus: 'approved', progress: 100, correctiveActionStatuses: ['completed'], documentReferenceStatuses: ['approved'] }, 'manager').primaryActionHandler === 'close_finding', 'بعد اعتماد الملاحظة يظهر الإغلاق.'),
+    assert(simplifiedModel({ ...base, workflowStatus: 'closed', progress: 100, correctiveActionStatuses: ['completed'], documentReferenceStatuses: ['approved'] }, 'manager').readonly, 'الملاحظة المغلقة للقراءة فقط.'),
+    assert(simplifiedModel(base, 'viewer').primaryActionHandler === 'none', 'المطلع لا يرى إجراء غير مصرح به.'),
+    assert(simplifiedCaseQueues({ ...base, workflowStatus: 'returned_for_revision' }).includes('employee_returned'), 'الملاحظة المعادة تنتقل إلى بطاقة الموظف الصحيحة.'),
+    assert(JSON.stringify(base) === original, 'طبقة العرض المبسط لا تغير الحالة أو البيانات الأصلية.'),
+  ]
+
+  return checks
+}
+
 export const developmentScenarioResults = runDevelopmentCaseScenario()
+export const simplifiedScenarioResults = runSimplifiedCaseScenario()
 
 if (import.meta.env.DEV) {
-  console.info('[financial-control] Development-only in-memory scenario passed.', developmentScenarioResults)
+  console.info('[financial-control] Development-only in-memory scenario passed.', {
+    developmentScenarioResults,
+    simplifiedScenarioResults,
+  })
 }

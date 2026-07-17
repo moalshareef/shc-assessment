@@ -25,6 +25,9 @@ export async function runDevelopmentPlatformUsersScenario() {
   assert(validatePrimaryOrganization('') !== null, 'إلزام الجهة الأساسية.', results)
   assert(validateSuspensionReason('') !== null, 'إلزام سبب الإيقاف.', results)
   assert(validateTemporaryPassword('weak') !== null, 'رفض كلمة المرور الضعيفة.', results)
+  assert(validateTemporaryPassword('password1') === null, 'قبول 8 أحرف أو أكثر مع حرف ورقم دون اشتراط رمز أو حرف كبير.', results)
+  assert(validateTemporaryPassword('12345678') !== null, 'رفض كلمة المرور التي لا تحتوي على حرف.', results)
+  assert(validateTemporaryPassword('abcdefgh') !== null, 'رفض كلمة المرور التي لا تحتوي على رقم.', results)
   assert(validateTemporaryPassword(generatedStrongPassword) === null, 'قبول كلمة المرور القوية.', results)
 
   const listedUsers = await owner.listUsers()

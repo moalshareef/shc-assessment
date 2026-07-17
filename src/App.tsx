@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js'
 import { AppLayout } from './components/layout/AppLayout'
 import { LoginPage } from './features/auth/LoginPage'
 import { PasswordChangePage } from './features/auth/PasswordChangePage'
+import { ResetPasswordPage } from './features/auth/ResetPasswordPage'
 import { HomePage } from './features/home/HomePage'
 import { WorkspacesPage } from './features/workspaces/WorkspacesPage'
 import { PillarsPage } from './features/spending-efficiency/PillarsPage'
@@ -19,6 +20,10 @@ import type { CurrentOperationalAccess } from './types/platformUserAccess'
 function getViewFromLocation(): ViewName {
   const normalizedPath = window.location.pathname.replace(/\/+$/, '')
   return normalizedPath.endsWith('/platform-admin') ? 'platformAdmin' : 'home'
+}
+
+function isPasswordRecoveryPath() {
+  return window.location.pathname.replace(/\/+$/, '').endsWith('/reset-password')
 }
 
 function getPathForView(view: ViewName): string {
@@ -38,14 +43,20 @@ export default function App() {
   const [profileActive, setProfileActive] = useState(false)
   const [mustChangePassword, setMustChangePassword] = useState(false)
   const [operationalAccess, setOperationalAccess] = useState<CurrentOperationalAccess[]>([])
+  const [passwordRecovery, setPasswordRecovery] = useState(isPasswordRecoveryPath)
+  const [recoveryVerified, setRecoveryVerified] = useState(false)
 
   useEffect(() => {
     let mounted = true
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!mounted) return
       setSession(nextSession)
       setAuthReady(true)
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecovery(true)
+        setRecoveryVerified(true)
+      }
       if (!nextSession) {
         setSignOutLoading(false)
       }
@@ -98,6 +109,7 @@ export default function App() {
 
   useEffect(() => {
     const handlePopState = () => {
+      setPasswordRecovery(isPasswordRecoveryPath())
       setActiveView(getViewFromLocation())
       setSelectedPillar(null)
       setSidebarOpen(false)
@@ -142,6 +154,14 @@ export default function App() {
     }
   }
 
+  const handleBackToLogin = async () => {
+    await supabase.auth.signOut({ scope: 'local' })
+    const basePath = import.meta.env.BASE_URL.replace(/\/+$/, '')
+    window.history.replaceState({}, '', `${basePath}/`)
+    setRecoveryVerified(false)
+    setPasswordRecovery(false)
+  }
+
   const refreshProfileAccess = async () => {
     setProfileAccessReady(false)
     try {
@@ -151,6 +171,16 @@ export default function App() {
     } finally {
       setProfileAccessReady(true)
     }
+  }
+
+  if (passwordRecovery) {
+    return (
+      <ResetPasswordPage
+        authReady={authReady}
+        recoveryVerified={recoveryVerified}
+        onBackToLogin={handleBackToLogin}
+      />
+    )
   }
 
   if (!authReady) {

@@ -3,18 +3,26 @@ import { Icon } from '../../components/layout/Header'
 import type { IconName } from '../../components/layout/Header'
 import { FindingUpdatePanel } from './FindingUpdatePanel'
 import { DocumentReferencesSection } from './DocumentReferencesSection'
+import { SimplifiedCaseGuide } from './SimplifiedCaseGuide'
 import type { FindingUpdateKind } from './FindingUpdatePanel'
+import './financialControlSimplified.css'
 import { formatArabicDate, formatArabicDateTime } from './dateFormat'
 import {
-  caseWorkflowStage,
   caseWorkQueues,
   daysUntilCaseDue,
   daysWithoutCaseUpdate,
   nextCaseAction,
   operationalStatusLabel,
-  STALE_DAYS,
 } from './caseManagementModel'
-import type { CaseSnapshot, CaseWorkQueueKey } from './caseManagementModel'
+import type { CaseSnapshot } from './caseManagementModel'
+import {
+  buildSimplifiedCaseViewModel,
+  simplifiedCaseQueues,
+} from './simplifiedCaseViewModel'
+import type {
+  SimplifiedPrimaryActionHandler,
+  SimplifiedQueueKey,
+} from './simplifiedCaseViewModel'
 import {
   getFinancialControlDashboard,
   transitionFinancialControlAction,
@@ -60,7 +68,7 @@ const ratingLabels: Record<FinancialControlAssessmentRating, string> = {
 type FindingSort = 'code_asc' | 'code_desc' | 'date_asc' | 'date_desc' | 'status'
 type WorkQueueKey =
   | 'all'
-  | CaseWorkQueueKey
+  | SimplifiedQueueKey
 
 interface WorkQueueDefinition {
   key: WorkQueueKey
@@ -209,79 +217,61 @@ function actionRoleAllowed(
 
 const employeeQueues: WorkQueueDefinition[] = [
   {
-    key: 'needs_action_today',
-    label: 'تحتاج إجراء اليوم',
-    description: 'لها موعد استحقاق فعلي اليوم ولم تغلق.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('needs_action_today'),
+    key: 'employee_needs_update',
+    label: 'تحتاج تحديثًا',
+    description: 'تحتاج تسجيل تواصل أو تحديث تنفيذ أو استكمال سبب الإرجاع.',
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('employee_needs_update'),
   },
   {
-    key: 'needs_start',
-    label: 'تحتاج بدء المتابعة',
-    description: 'لم يسجل لها إرسال رسمي حتى الآن.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('needs_start'),
-  },
-  {
-    key: 'awaiting_reply',
+    key: 'employee_awaiting_reply',
     label: 'بانتظار رد',
     description: 'أُرسل بشأنها بريد رسمي ولم يسجل رد أحدث منه.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('awaiting_reply'),
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('employee_awaiting_reply'),
   },
   {
-    key: 'due_soon',
-    label: 'قريبة الاستحقاق',
-    description: 'موعدها خلال 30 يومًا ولم تغلق.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('due_soon'),
-  },
-  {
-    key: 'overdue',
-    label: 'متأخرة',
-    description: 'تجاوزت تاريخ الاستحقاق الحالي.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('overdue'),
-  },
-  {
-    key: 'stale',
-    label: 'بلا تحديث منذ مدة',
-    description: `لم يسجل عليها نشاط منذ ${STALE_DAYS} يومًا أو أكثر.`,
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('stale'),
-  },
-  {
-    key: 'returned',
+    key: 'employee_returned',
     label: 'معادة من المدير',
     description: 'تحتاج استكمال المطلوب قبل إعادة الرفع.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('returned'),
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('employee_returned'),
   },
   {
-    key: 'ready_to_submit',
-    label: 'جاهزة للرفع',
-    description: 'اكتمل تنفيذها ولم تُرفع بعد للمدير.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('ready_to_submit'),
+    key: 'employee_ready_to_send',
+    label: 'جاهزة للإرسال',
+    description: 'الإنجاز 100% ويوجد مرجع، وتنتظر الإرسال للمدير.',
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('employee_ready_to_send'),
+  },
+  {
+    key: 'employee_waiting_manager',
+    label: 'بانتظار مراجعة المدير',
+    description: 'أُرسلت للمدير ولا توجد إجراءات تشغيلية مطلوبة حاليًا.',
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('employee_waiting_manager'),
   },
 ]
 
 const managerQueues: WorkQueueDefinition[] = [
   {
-    key: 'manager_waiting',
-    label: 'ملاحظات بانتظار الاعتماد',
-    description: 'مرفوعة للمدير أو تحت مراجعته.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('manager_waiting'),
+    key: 'manager_pending_start',
+    label: 'بانتظار بدء المراجعة',
+    description: 'اكتمل رفع إجراءاتها وتنتظر بدء مراجعة المدير.',
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('manager_pending_start'),
   },
   {
-    key: 'manager_returned',
-    label: 'ملاحظات معادة',
-    description: 'أعادها المدير للتعديل وما زالت مفتوحة.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('manager_returned'),
+    key: 'manager_documents_pending',
+    label: 'مستندات تحتاج قرارًا',
+    description: 'تحت المراجعة وبها مراجع معلقة أو مرفوضة.',
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('manager_documents_pending'),
   },
   {
-    key: 'manager_overdue',
-    label: 'ملاحظات متأخرة',
-    description: 'ملاحظات مفتوحة تجاوزت موعدها.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('manager_overdue'),
+    key: 'manager_ready_approval',
+    label: 'جاهزة للاعتماد',
+    description: 'حُسمت جميع المراجع وتنتظر قرار الملاحظة.',
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('manager_ready_approval'),
   },
   {
-    key: 'ready_to_close',
-    label: 'ملاحظات جاهزة للإغلاق',
-    description: 'اعتمدت وتنتظر الإغلاق الإداري.',
-    test: (finding) => caseWorkQueues(toCaseSnapshot(finding)).includes('ready_to_close'),
+    key: 'manager_returned_employee',
+    label: 'معادة للموظف',
+    description: 'أُعيدت للموظف وتنتظر استكمال المطلوب.',
+    test: (finding) => simplifiedCaseQueues(toCaseSnapshot(finding)).includes('manager_returned_employee'),
   },
 ]
 
@@ -432,6 +422,9 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
   const [mutationKey, setMutationKey] = useState<string | null>(null)
   const [mutationSuccess, setMutationSuccess] = useState<string | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
+  const [advancedView, setAdvancedView] = useState(false)
+  const [documentOpenRequest, setDocumentOpenRequest] = useState(0)
+  const [documentExpandRequest, setDocumentExpandRequest] = useState(0)
 
   const applyDashboardData = (dashboard: FinancialControlDashboardData) => {
     setData(dashboard)
@@ -529,6 +522,13 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
     setWorkQueue('all')
   }
 
+  const openFinding = (findingId: string) => {
+    setSelectedFindingId(findingId)
+    setAdvancedView(false)
+    setDocumentOpenRequest(0)
+    setDocumentExpandRequest(0)
+  }
+
   const runMutation = async (key: string, successMessage: string, operation: () => Promise<void>) => {
     setMutationKey(key)
     setMutationSuccess(null)
@@ -616,13 +616,164 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
     const trackingProgress = selectedFinding.corrective_actions.length > 0
       ? Math.round(selectedFinding.corrective_actions.reduce((sum, action) => sum + action.progress_percent, 0) / selectedFinding.corrective_actions.length)
       : selectedFinding.progress_percent
-    const currentStage = caseWorkflowStage(snapshot)
-    const stages = ['بدء المتابعة', 'المراسلات', 'التنفيذ', 'مراجعة المدير', 'الإغلاق']
     const suggestedAction = suggestedFindingAction(selectedFinding, currentRoles)
-    const timeAlert = dueAlert(selectedFinding)
+    const latestReturnHistory = [...selectedFinding.status_history]
+      .filter((item) => item.to_status === 'returned_for_revision')
+      .sort((first, second) => new Date(second.changed_at).getTime() - new Date(first.changed_at).getTime())[0]
+    const latestReturnReason = latestReturnHistory?.reason ?? null
+    const returnTimestamp = latestReturnHistory ? new Date(latestReturnHistory.changed_at).getTime() : null
+    const hasEmployeeActivityAfterReturn = Boolean(
+      returnTimestamp
+      && currentUserId
+      && [
+        ...selectedFinding.comments
+          .filter((comment) => comment.author_user_id === currentUserId)
+          .map((comment) => comment.created_at),
+        ...selectedFinding.messages
+          .filter((message) => message.recorded_by === currentUserId)
+          .map((message) => message.created_at),
+        ...selectedFinding.corrective_actions
+          .filter((action) => action.updated_by === currentUserId)
+          .map((action) => action.updated_at),
+        ...selectedFinding.corrective_actions.flatMap((action) => action.document_references)
+          .filter((reference) => reference.created_by === currentUserId)
+          .map((reference) => reference.created_at),
+      ].some((timestamp) => new Date(timestamp).getTime() > returnTimestamp),
+    )
+    const hasCompleteExecutionDetails = selectedFinding.corrective_actions.length > 0
+      && selectedFinding.corrective_actions.every((action) =>
+        action.progress_percent === 100 && Boolean(action.execution_details?.trim()))
+    const isAssignedEmployee = Boolean(
+      currentUserId
+      && currentRoles.includes('action_owner')
+      && selectedFinding.corrective_actions.some((action) => action.responsible_user_id === currentUserId),
+    )
+    const simplifiedModel = buildSimplifiedCaseViewModel({
+      snapshot,
+      roles: currentRoles,
+      isAssignedEmployee,
+      latestReturnReason,
+      hasEmployeeActivityAfterReturn,
+      hasCompleteExecutionDetails,
+    })
     const otherFindingTransitions = availableFindingTransitions.filter(
       (option) => option.to !== suggestedAction.transition?.to,
     )
+
+    const findingTransitionFor = (to: FinancialControlFindingStatus) =>
+      availableFindingTransitions.find((option) => option.to === to)
+
+    const actionReadyToSubmit = selectedFinding.corrective_actions.find((action) =>
+      action.workflow_status === 'in_progress'
+      && action.progress_percent === 100
+      && Boolean(action.execution_details?.trim())
+      && action.document_references.length > 0,
+    )
+    const assignedActionForUpdate = selectedFinding.corrective_actions.find((action) =>
+      action.responsible_user_id === currentUserId) ?? selectedFinding.corrective_actions[0]
+
+    const openAdvancedExecution = () => {
+      if (!assignedActionForUpdate) return
+      setAdvancedView(true)
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          document.getElementById(`execution-update-${assignedActionForUpdate.id}`)?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          })
+        })
+      })
+    }
+
+    const renderSimplifiedUpdate = (kind: FindingUpdateKind, label: string, showKindSelector = false) => (
+      <FindingUpdatePanel
+        key={`${selectedFinding.id}-simplified-${kind}`}
+        finding={selectedFinding}
+        roles={currentRoles}
+        busy={mutationKey !== null}
+        initialKind={kind}
+        triggerLabel={label}
+        showKindSelector={showKindSelector}
+        onRun={runMutation}
+      />
+    )
+
+    const renderSimplifiedPrimary = (handler: SimplifiedPrimaryActionHandler) => {
+      if (handler === 'record_sent_email') return renderSimplifiedUpdate('sent_email', simplifiedModel.primaryActionLabel)
+      if (handler === 'record_follow_up_or_reply') return renderSimplifiedUpdate('follow_up', simplifiedModel.primaryActionLabel, true)
+      if (handler === 'update_progress' && selectedFinding.workflow_status === 'returned_for_revision') {
+        return (
+          <button className="primary-button" type="button" onClick={openAdvancedExecution}>
+            استكمال التعديل
+          </button>
+        )
+      }
+      if (handler === 'update_progress') return renderSimplifiedUpdate('progress', simplifiedModel.primaryActionLabel)
+      if (handler === 'open_document_references') {
+        return (
+          <button className="primary-button" type="button" onClick={() => setDocumentOpenRequest((current) => current + 1)}>
+            {simplifiedModel.primaryActionLabel}
+          </button>
+        )
+      }
+      if (handler === 'review_document_references') {
+        return (
+          <button className="primary-button" type="button" onClick={() => setDocumentExpandRequest((current) => current + 1)}>
+            {simplifiedModel.primaryActionLabel}
+          </button>
+        )
+      }
+      if (handler === 'submit_next_action' && actionReadyToSubmit) {
+        const option = (actionTransitions[actionReadyToSubmit.workflow_status] ?? [])
+          .find((item) => item.to === 'submitted_for_manager_review')
+        return option ? (
+          <button className="primary-button" type="button" disabled={mutationKey !== null} onClick={() => handleActionTransition(actionReadyToSubmit, option)}>
+            {mutationKey === `action-${actionReadyToSubmit.id}` ? 'جاري الإرسال...' : simplifiedModel.primaryActionLabel}
+          </button>
+        ) : null
+      }
+      if (handler === 'start_manager_review') {
+        const option = findingTransitionFor('under_manager_review')
+        return option ? <button className="primary-button" type="button" disabled={mutationKey !== null} onClick={() => handleFindingTransition(selectedFinding, option)}>{simplifiedModel.primaryActionLabel}</button> : null
+      }
+      if (handler === 'approve_finding') {
+        const option = findingTransitionFor('approved')
+        return option ? <button className="primary-button" type="button" disabled={mutationKey !== null} onClick={() => handleFindingTransition(selectedFinding, option)}>{simplifiedModel.primaryActionLabel}</button> : null
+      }
+      if (handler === 'close_finding') {
+        const option = findingTransitionFor('closed')
+        return option ? <button className="primary-button" type="button" disabled={mutationKey !== null} onClick={() => handleFindingTransition(selectedFinding, option)}>{simplifiedModel.primaryActionLabel}</button> : null
+      }
+      return <span className="status muted">{simplifiedModel.primaryActionLabel}</span>
+    }
+
+    const renderSimplifiedSecondary = () => simplifiedModel.secondaryActions.map((action) => {
+      if (action.handler === 'open_document_references') {
+        return <button className="secondary-button" type="button" key={action.label} onClick={() => setDocumentExpandRequest((current) => current + 1)}>{action.label}</button>
+      }
+      if (action.handler === 'record_follow_up_or_reply') {
+        return <span key={action.label}>{renderSimplifiedUpdate('follow_up', action.label, true)}</span>
+      }
+      if (action.handler === 'return_finding') {
+        const option = findingTransitionFor('returned_for_revision')
+        return option ? (
+          <div key={action.label} style={{ display: 'grid', gap: 8, width: '100%' }}>
+            <textarea
+              aria-label="سبب إرجاع الملاحظة للموظف"
+              value={findingReason}
+              onChange={(event) => setFindingReason(event.target.value)}
+              placeholder="سبب الإرجاع إلزامي"
+              rows={3}
+              style={{ ...controlStyle, minHeight: 88, padding: 12, resize: 'vertical' }}
+            />
+            <button className="secondary-button" type="button" disabled={mutationKey !== null || !findingReason.trim()} onClick={() => handleFindingTransition(selectedFinding, option)}>
+              {action.label}
+            </button>
+          </div>
+        ) : null
+      }
+      return null
+    })
 
     return (
       <div className="detail-panel" data-testid="financial-control-details">
@@ -633,7 +784,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
             <h1>{selectedFinding.title}</h1>
             <p>{selectedFinding.case_code}</p>
           </div>
-          <button className="secondary-button" type="button" onClick={() => setSelectedFindingId(null)} data-testid="finding-back-button">
+          <button className="secondary-button" type="button" onClick={() => { setSelectedFindingId(null); setAdvancedView(false) }} data-testid="finding-back-button">
             <Icon name="arrow" size={19}/> رجوع إلى الملاحظات
           </button>
         </div>
@@ -645,56 +796,43 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
           <section className="panel" role="alert" style={{ color: 'var(--danger)', background: '#fff0f0' }}>{mutationError}</section>
         ) : null}
 
-        <section className="detail-section" aria-label="مسار الملاحظة والإجراء التالي">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(110px, 1fr))', overflowX: 'auto', gap: 8, paddingBottom: 4 }}>
-            {stages.map((stage, index) => (
-              <div key={stage} style={{ minWidth: 110, display: 'grid', gap: 8, textAlign: 'center' }}>
-                <div style={{ height: 7, borderRadius: 999, background: index <= currentStage ? 'var(--primary)' : '#dce5ea' }}/>
-                <strong style={{ color: index <= currentStage ? '#17324d' : 'var(--muted)', fontSize: 13 }}>{stage}</strong>
-              </div>
+        <SimplifiedCaseGuide
+          model={simplifiedModel}
+          primaryControl={renderSimplifiedPrimary(simplifiedModel.primaryActionHandler)}
+          secondaryControls={renderSimplifiedSecondary()}
+        />
+
+        <div className="simplified-mode-toolbar">
+          <button className="text-button" type="button" onClick={() => setAdvancedView((current) => !current)} aria-expanded={advancedView}>
+            {advancedView ? 'إخفاء التفاصيل المتقدمة' : 'عرض التفاصيل المتقدمة'}
+          </button>
+        </div>
+
+        {!advancedView && (
+          simplifiedModel.primaryActionHandler === 'open_document_references'
+          || simplifiedModel.primaryActionHandler === 'review_document_references'
+          || simplifiedModel.secondaryActions.some((action) => action.handler === 'open_document_references')
+        ) ? (
+          <section className="simplified-focus-section" data-testid="simplified-document-references">
+            {selectedFinding.corrective_actions.map((action) => (
+              <DocumentReferencesSection
+                key={action.id}
+                action={action}
+                findingStatus={selectedFinding.workflow_status}
+                roles={currentRoles}
+                currentUserId={currentUserId}
+                busy={mutationKey !== null}
+                onRun={runMutation}
+                compact
+                openAddRequest={documentOpenRequest}
+                expandRequest={documentExpandRequest}
+              />
             ))}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12, marginTop: 18 }}>
-            <div className="detail-card">
-              <span>الحالة الحالية</span>
-              <strong>{operationalStatusLabel(snapshot)}</strong>
-              {timeAlert ? <small style={{ color: timeAlert.tone === 'danger' ? 'var(--danger)' : '#9a6b00' }}>{timeAlert.label}</small> : null}
-              {daysWithoutUpdate >= STALE_DAYS ? <small style={{ color: '#9a6b00' }}>بلا تحديث منذ {daysWithoutUpdate} يومًا</small> : null}
-            </div>
-            <div className="detail-card" style={{ gridColumn: 'span 2' }}>
-              <span>الإجراء التالي المقترح</span>
-              <strong>{suggestedAction.label}</strong>
-              <p style={{ color: 'var(--muted)', lineHeight: 1.7, margin: 0 }}>{suggestedAction.reason}</p>
-              <div style={{ marginTop: 10 }}>
-                {suggestedAction.kind === 'update' && suggestedAction.updateKind ? (
-                  <FindingUpdatePanel
-                    key={`${selectedFinding.id}-${suggestedAction.updateKind}`}
-                    finding={selectedFinding}
-                    roles={currentRoles}
-                    busy={mutationKey !== null}
-                    initialKind={suggestedAction.updateKind}
-                    triggerLabel={suggestedAction.label}
-                    showKindSelector={suggestedAction.label === 'تسجيل متابعة أو رد'}
-                    onRun={runMutation}
-                  />
-                ) : suggestedAction.kind === 'transition' && suggestedAction.transition ? (
-                  <button
-                    className="primary-button"
-                    type="button"
-                    disabled={mutationKey !== null}
-                    onClick={() => handleFindingTransition(selectedFinding, suggestedAction.transition!)}
-                  >
-                    {mutationKey === `finding-${selectedFinding.id}` ? 'جاري التنفيذ...' : suggestedAction.label}
-                  </button>
-                ) : suggestedAction.kind === 'guidance' ? (
-                  <span className="status">استكمل دورة الإجراء التصحيحي أدناه</span>
-                ) : (
-                  <span className="status muted">قراءة فقط</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
+          </section>
+        ) : null}
+
+        {advancedView ? (
+          <div className="advanced-details" data-testid="financial-control-advanced-details">
 
         <section className="detail-section" aria-label="ملخص متابعة الملاحظة">
           <h2>ملخص المتابعة</h2>
@@ -817,7 +955,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                       onRun={runMutation}
                     />
 
-                    <div style={{ display: 'grid', gap: 10, paddingTop: 8 }}>
+                    <div id={`execution-update-${action.id}`} style={{ display: 'grid', gap: 10, paddingTop: 8, scrollMarginTop: 24 }}>
                       <h3 style={{ margin: 0, fontSize: 16 }}>تحديث التنفيذ</h3>
                       <label style={{ color: 'var(--muted)', fontSize: 13 }} htmlFor={`progress-${action.id}`}>نسبة الإنجاز من 0 إلى 100</label>
                       <input
@@ -912,6 +1050,8 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
             <p style={{ color: 'var(--muted)', marginTop: 12 }}>لا توجد تحديثات تشغيلية أو انتقالات حالة مسجلة حتى الآن.</p>
           )}
         </section>
+          </div>
+        ) : null}
       </div>
     )
   }
@@ -947,7 +1087,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                 <div><span className="eyebrow">مسار الموظف</span><h2>عملي اليوم</h2><p>اختر قائمة للانتقال مباشرة إلى الملاحظات التي تحتاج انتباهك.</p></div>
                 {workQueue !== 'all' ? <button className="text-button" type="button" onClick={() => setWorkQueue('all')}>عرض الكل</button> : null}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+              <div className="simplified-queue-grid">
                 {employeeQueues.map((queue) => {
                   const count = data.findings.filter(queue.test).length
                   const selected = workQueue === queue.key
@@ -957,7 +1097,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                       type="button"
                       onClick={() => setWorkQueue(selected ? 'all' : queue.key)}
                       aria-pressed={selected}
-                      style={{ textAlign: 'right', border: selected ? '2px solid var(--primary)' : '1px solid var(--border)', borderRadius: 12, background: selected ? '#eef7f8' : '#fff', padding: 14, cursor: 'pointer', font: 'inherit', color: 'inherit' }}
+                      className="simplified-queue-card"
                     >
                       <span style={{ color: 'var(--muted)', display: 'block', marginBottom: 8 }}>{queue.label}</span>
                       <strong style={{ display: 'block', fontSize: 26 }}>{count}</strong>
@@ -974,7 +1114,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
               <div className="panel-header">
                 <div><span className="eyebrow">مسار المدير</span><h2>بانتظار مراجعتي</h2><p>قوائم المراجعة والاعتماد والإغلاق حسب الحالة الفعلية.</p></div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 12 }}>
+              <div className="simplified-queue-grid">
                 {managerQueues.map((queue) => {
                   const count = data.findings.filter(queue.test).length
                   const selected = workQueue === queue.key
@@ -984,7 +1124,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                       type="button"
                       onClick={() => setWorkQueue(selected ? 'all' : queue.key)}
                       aria-pressed={selected}
-                      style={{ textAlign: 'right', border: selected ? '2px solid var(--primary)' : '1px solid var(--border)', borderRadius: 12, background: selected ? '#eef7f8' : '#fff', padding: 14, cursor: 'pointer', font: 'inherit', color: 'inherit' }}
+                      className="simplified-queue-card"
                     >
                       <span style={{ color: 'var(--muted)', display: 'block', marginBottom: 8 }}>{queue.label}</span>
                       <strong style={{ display: 'block', fontSize: 26 }}>{count}</strong>
@@ -1035,7 +1175,8 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
               <div><h2>{workQueue === 'all' ? 'الملاحظات الرقابية' : [...employeeQueues, ...managerQueues].find((queue) => queue.key === workQueue)?.label}</h2><p aria-live="polite" data-testid="findings-count">عرض {filteredFindings.length} من {data.findings.length} ملاحظة</p></div>
             </div>
             {filteredFindings.length > 0 ? (
-              <div className="table-wrap"><table style={{ minWidth: 1180 }}><thead><tr><th>الكود والملاحظة</th><th>رقم الحالة</th><th>التقييم</th><th>المسؤول</th><th>الحالة</th><th>الموعد</th><th>الإنجاز</th><th></th></tr></thead><tbody data-testid="findings-table-body">
+              <>
+              <div className="table-wrap simplified-findings-desktop"><table style={{ minWidth: 1180 }}><thead><tr><th>الكود والملاحظة</th><th>رقم الحالة</th><th>التقييم</th><th>المسؤول</th><th>الحالة</th><th>الموعد</th><th>الإنجاز</th><th></th></tr></thead><tbody data-testid="findings-table-body">
                 {filteredFindings.map((item) => (
                   <tr key={item.id} data-testid="finding-row">
                     <td style={{ maxWidth: 340 }}><strong>{item.reference_code} — {item.title}</strong><span style={{ color: 'var(--muted)', display: 'block', marginTop: 5, lineHeight: 1.6 }}>{item.official_finding_text.slice(0, 115)}{item.official_finding_text.length > 115 ? '…' : ''}</span></td>
@@ -1045,10 +1186,25 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
                     <td><span className={`status ${statusClass(item)}`}>{isFindingOverdue(item) ? 'متأخرة' : operationalStatusLabel(toCaseSnapshot(item))}</span>{dueAlert(item) ? <small style={{ display: 'block', marginTop: 6, color: dueAlert(item)?.tone === 'danger' ? 'var(--danger)' : '#9a6b00' }}>{dueAlert(item)?.label}</small> : null}</td>
                     <td>{formatArabicDate(item.official_due_date)}</td>
                     <td><div className="progress-cell"><div className="progress-track"><span style={{ width: `${findingProgress(item)}%` }} /></div><span>{findingProgress(item)}%</span></div></td>
-                    <td><button className="secondary-button" type="button" onClick={() => setSelectedFindingId(item.id)} aria-label={`فتح تفاصيل الملاحظة ${item.reference_code}`}>التفاصيل</button></td>
+                    <td><button className="secondary-button" type="button" onClick={() => openFinding(item.id)} aria-label={`فتح تفاصيل الملاحظة ${item.reference_code}`}>التفاصيل</button></td>
                   </tr>
                 ))}
               </tbody></table></div>
+              <div className="simplified-findings-mobile" data-testid="findings-mobile-list">
+                {filteredFindings.map((item) => (
+                  <article className="simplified-finding-card" key={item.id}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'start' }}>
+                      <strong>{item.reference_code} — {item.title}</strong>
+                      <span className={`status ${statusClass(item)}`}>{operationalStatusLabel(toCaseSnapshot(item))}</span>
+                    </div>
+                    <span style={{ color: 'var(--muted)', fontSize: 13 }}>{item.official_owner_label}</span>
+                    <div className="progress-cell"><div className="progress-track"><span style={{ width: `${findingProgress(item)}%` }} /></div><span>{findingProgress(item)}%</span></div>
+                    <span style={{ color: 'var(--muted)', fontSize: 13 }}>الاستحقاق: {formatArabicDate(item.official_due_date)}</span>
+                    <button className="secondary-button" type="button" onClick={() => openFinding(item.id)}>فتح الملاحظة</button>
+                  </article>
+                ))}
+              </div>
+              </>
             ) : (
               <p style={{ color: 'var(--muted)', padding: 16, textAlign: 'center' }}>
                 {data.findings.length === 0

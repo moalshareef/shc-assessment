@@ -46,7 +46,7 @@ export function PasswordChangePage({ onChanged, onSignOut }: Props) {
         <form className="auth-form" onSubmit={submit} noValidate>
           <label htmlFor="new-password">كلمة المرور الجديدة</label>
           <input id="new-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" disabled={loading} />
-          <small className="auth-hint">12 حرفًا على الأقل، وتتضمن حرفًا كبيرًا وصغيرًا ورقمًا ورمزًا خاصًا.</small>
+          <small className="auth-hint">يجب أن تتكون كلمة المرور من 8 أحرف على الأقل، وتحتوي على حرف ورقم.</small>
           <label htmlFor="confirm-password">تأكيد كلمة المرور</label>
           <input id="confirm-password" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="new-password" disabled={loading} />
           {error ? <p className="auth-error" role="alert">{error}</p> : null}

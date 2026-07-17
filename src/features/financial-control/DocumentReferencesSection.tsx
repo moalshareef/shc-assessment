@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   addDocumentReference,
   decideDocumentReference,
@@ -22,6 +22,9 @@ interface DocumentReferencesSectionProps {
   currentUserId: string | null
   busy: boolean
   onRun: (key: string, successMessage: string, operation: () => Promise<void>) => Promise<boolean>
+  compact?: boolean
+  openAddRequest?: number
+  expandRequest?: number
 }
 
 type ReferenceForm = Omit<DocumentReferenceFieldsInput, 'correctiveActionId'>
@@ -106,12 +109,16 @@ export function DocumentReferencesSection({
   currentUserId,
   busy,
   onRun,
+  compact = false,
+  openAddRequest = 0,
+  expandRequest = 0,
 }: DocumentReferencesSectionProps) {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState<CorrectiveActionDocumentReference | null>(null)
   const [form, setForm] = useState<ReferenceForm>(emptyForm)
   const [decisionNotes, setDecisionNotes] = useState<Record<string, string>>({})
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(!compact)
   const assignedEmployee = roles.includes('action_owner') && action.responsible_user_id === currentUserId
   const employeeCanManage = assignedEmployee && editableFindingStatuses.includes(findingStatus)
   const managerCanDecide = (roles.includes('manager') || roles.includes('owner'))
@@ -122,6 +129,19 @@ export function DocumentReferencesSection({
     setForm(emptyForm())
     setFormOpen(true)
   }
+
+  useEffect(() => {
+    if (openAddRequest > 0 && employeeCanManage) {
+      setExpanded(true)
+      openAdd()
+    }
+  // openAddRequest is an explicit one-shot signal from the simplified guide.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openAddRequest])
+
+  useEffect(() => {
+    if (expandRequest > 0) setExpanded(true)
+  }, [expandRequest])
 
   const openEdit = (reference: CorrectiveActionDocumentReference) => {
     setEditing(reference)
@@ -197,14 +217,21 @@ export function DocumentReferencesSection({
           <h3 style={{ margin: 0 }}>المستندات المرجعية</h3>
           <span style={{ color: 'var(--muted)', fontSize: 13 }}>عدد المستندات: {action.document_references.length}</span>
         </div>
-        {employeeCanManage ? (
-          <button className="secondary-button" type="button" onClick={openAdd} disabled={busy || formOpen}>
-            إضافة مستند مرجعي
-          </button>
-        ) : null}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {compact ? (
+            <button className="secondary-button" type="button" onClick={() => setExpanded((current) => !current)}>
+              {expanded ? 'إخفاء التفاصيل' : 'عرض المستندات'}
+            </button>
+          ) : null}
+          {employeeCanManage ? (
+            <button className="secondary-button" type="button" onClick={() => { setExpanded(true); openAdd() }} disabled={busy || formOpen}>
+              إضافة مستند مرجعي
+            </button>
+          ) : null}
+        </div>
       </div>
 
-      {formOpen ? (
+      {expanded && formOpen ? (
         <div className="detail-card" style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
             <strong>{editing ? 'تعديل المستند المرجعي' : 'إضافة مستند مرجعي'}</strong>
@@ -227,7 +254,7 @@ export function DocumentReferencesSection({
         </div>
       ) : null}
 
-      {action.document_references.length > 0 ? action.document_references.map((reference) => (
+      {expanded && action.document_references.length > 0 ? action.document_references.map((reference) => (
         <article key={reference.id} className="detail-card" style={{ display: 'grid', gap: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <strong>{reference.document_name}</strong>
@@ -274,9 +301,9 @@ export function DocumentReferencesSection({
             </div>
           ) : null}
         </article>
-      )) : (
+      )) : expanded ? (
         <p style={{ color: 'var(--muted)', margin: 0 }}>لا توجد مستندات مرجعية مسجلة لهذا الإجراء.</p>
-      )}
+      ) : null}
     </section>
   )
 }

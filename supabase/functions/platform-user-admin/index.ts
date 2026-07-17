@@ -1,7 +1,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import { createClient, type SupabaseClient, type User } from 'npm:@supabase/supabase-js@2.110.3'
 
-type Action = 'list_users' | 'create_user' | 'invite_user' | 'suspend_user' | 'activate_user' | 'change_own_password'
+type Action = 'list_users' | 'create_user' | 'invite_user' | 'suspend_user' | 'activate_user' | 'change_own_password' | 'reset_user_password'
 
 const DEFAULT_ORIGINS = [
   'https://vhoho.github.io',
@@ -73,11 +73,9 @@ async function assertSystemOwner(admin: SupabaseClient, actor: User) {
 }
 
 function validateStrongPassword(password: string) {
-  return password.length >= 12
-    && /[a-z]/.test(password)
-    && /[A-Z]/.test(password)
+  return password.length >= 8
+    && /[A-Za-z]/.test(password)
     && /\d/.test(password)
-    && /[^A-Za-z0-9]/.test(password)
 }
 
 async function listAllAuthUsers(admin: SupabaseClient) {
@@ -171,7 +169,7 @@ async function createUser(admin: SupabaseClient, actor: User, payload: Record<st
   const { email, fullName, organizationId } = await validateNewUser(admin, payload)
   const temporaryPassword = String(payload.temporary_password ?? '')
   if (!validateStrongPassword(temporaryPassword)) {
-    throw Object.assign(new Error('كلمة المرور المؤقتة يجب أن تتكون من 12 حرفًا على الأقل وتتضمن حرفًا كبيرًا وصغيرًا ورقمًا ورمزًا خاصًا.'), { status: 400 })
+    throw Object.assign(new Error('يجب أن تتكون كلمة المرور من 8 أحرف على الأقل، وتحتوي على حرف ورقم.'), { status: 400 })
   }
 
   const { data: created, error: authError } = await admin.auth.admin.createUser({
@@ -224,7 +222,7 @@ async function createUser(admin: SupabaseClient, actor: User, payload: Record<st
 async function changeOwnPassword(admin: SupabaseClient, actor: User, payload: Record<string, unknown>) {
   const password = String(payload.new_password ?? '')
   if (!validateStrongPassword(password)) {
-    throw Object.assign(new Error('كلمة المرور الجديدة يجب أن تتكون من 12 حرفًا على الأقل وتتضمن حرفًا كبيرًا وصغيرًا ورقمًا ورمزًا خاصًا.'), { status: 400 })
+    throw Object.assign(new Error('يجب أن تتكون كلمة المرور من 8 أحرف على الأقل، وتحتوي على حرف ورقم.'), { status: 400 })
   }
 
   const { data: profile, error: profileError } = await admin.from('profiles').select('is_active, must_change_password').eq('id', actor.id).maybeSingle()
@@ -248,6 +246,63 @@ async function changeOwnPassword(admin: SupabaseClient, actor: User, payload: Re
   })
   if (auditError) throw auditError
   return { user_id: actor.id, status: 'password_changed' }
+}
+
+async function resetUserPassword(admin: SupabaseClient, actor: User, payload: Record<string, unknown>) {
+  const userId = String(payload.user_id ?? '').trim()
+  const temporaryPassword = String(payload.temporary_password ?? '')
+  if (!userId) throw Object.assign(new Error('معرف المستخدم إلزامي.'), { status: 400 })
+  if (!validateStrongPassword(temporaryPassword)) {
+    throw Object.assign(new Error('يجب أن تتكون كلمة المرور من 8 أحرف على الأقل، وتحتوي على حرف ورقم.'), { status: 400 })
+  }
+
+  const [{ data: authData, error: userError }, { data: profile, error: profileError }] = await Promise.all([
+    admin.auth.admin.getUserById(userId),
+    admin.from('profiles').select('id, is_active, must_change_password, password_changed_at').eq('id', userId).maybeSingle(),
+  ])
+  if (userError || !authData.user) throw Object.assign(new Error('المستخدم غير موجود في خدمة المصادقة.'), { status: 404 })
+  if (profileError) throw profileError
+  if (!profile) throw Object.assign(new Error('ملف المستخدم غير موجود.'), { status: 404 })
+  if (!profile.is_active) throw Object.assign(new Error('لا يمكن إعادة تعيين كلمة مرور حساب غير فعال.'), { status: 409 })
+
+  const { error: markError } = await admin.from('profiles').update({
+    must_change_password: true,
+    password_changed_at: null,
+  }).eq('id', userId).eq('is_active', true)
+  if (markError) throw markError
+
+  const { error: authError } = await admin.auth.admin.updateUserById(userId, {
+    password: temporaryPassword,
+  })
+  if (authError) {
+    await admin.from('profiles').update({
+      must_change_password: profile.must_change_password,
+      password_changed_at: profile.password_changed_at,
+    }).eq('id', userId)
+    throw Object.assign(new Error('تعذر تحديث كلمة المرور في خدمة المصادقة.'), { status: 502 })
+  }
+
+  const { error: auditError } = await admin.from('audit_logs').insert({
+    actor_user_id: actor.id,
+    table_name: 'profiles',
+    record_id: userId,
+    action: 'UPDATE',
+    old_data: { must_change_password: profile.must_change_password },
+    new_data: {
+      must_change_password: true,
+      password_changed_at: null,
+      auth_operation: 'admin_password_reset',
+      email: authData.user.email ?? null,
+    },
+  })
+  if (auditError) throw Object.assign(new Error('تم تحديث كلمة المرور لكن تعذر تسجيل عملية التدقيق.'), { status: 500, partial: true })
+
+  return {
+    user_id: userId,
+    profile_status: 'active',
+    must_change_password: true,
+    status: 'password_reset',
+  }
 }
 
 async function inviteUser(admin: SupabaseClient, actor: User, payload: Record<string, unknown>) {
@@ -333,6 +388,7 @@ Deno.serve(async (request) => {
     await assertSystemOwner(admin, actor)
     if (action === 'list_users') return json(origin, 200, { users: await listUsers(admin) })
     if (action === 'create_user') return json(origin, 200, { result: await createUser(admin, actor, body) })
+    if (action === 'reset_user_password') return json(origin, 200, { result: await resetUserPassword(admin, actor, body) })
     if (action === 'invite_user') return json(origin, 200, { result: await inviteUser(admin, actor, body) })
     if (action === 'suspend_user') return json(origin, 200, { result: await changeUserActivation(admin, actor, body, false) })
     if (action === 'activate_user') return json(origin, 200, { result: await changeUserActivation(admin, actor, body, true) })

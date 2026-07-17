@@ -12,6 +12,7 @@ const api = createPlatformUsersApi(
 
 export const listPlatformUsers = api.listUsers
 export const createPlatformUser = api.createUser
+export const resetPlatformUserPassword = api.resetUserPassword
 export const invitePlatformUser = api.inviteUser
 export const suspendPlatformUser = api.suspendUser
 export const activatePlatformUser = api.activateUser

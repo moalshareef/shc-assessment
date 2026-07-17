@@ -1,4 +1,4 @@
-import type { CreatePlatformUserInput, InvitePlatformUserInput, PlatformAdminUser, PlatformUserAdminResult } from '../../types/platformUserAdmin'
+import type { CreatePlatformUserInput, InvitePlatformUserInput, PlatformAdminUser, PlatformUserAdminResult, ResetPlatformUserPasswordInput } from '../../types/platformUserAdmin'
 
 export interface PlatformUserAdminInvoker {
   (body: Record<string, unknown>): Promise<{ data: unknown; error: { message: string; context?: unknown } | null }>
@@ -48,6 +48,14 @@ export function createPlatformUsersApi(invoke: PlatformUserAdminInvoker, verifyO
         email: input.email.trim().toLowerCase(),
         full_name: input.fullName.trim(),
         primary_organization_id: input.primaryOrganizationId,
+        temporary_password: input.temporaryPassword,
+      })
+      return data.result as PlatformUserAdminResult
+    },
+    async resetUserPassword(input: ResetPlatformUserPasswordInput) {
+      const data = await call({
+        action: 'reset_user_password',
+        user_id: input.userId,
         temporary_password: input.temporaryPassword,
       })
       return data.result as PlatformUserAdminResult

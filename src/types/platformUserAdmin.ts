@@ -27,6 +27,11 @@ export interface CreatePlatformUserInput extends InvitePlatformUserInput {
   temporaryPassword: string
 }
 
+export interface ResetPlatformUserPasswordInput {
+  userId: string
+  temporaryPassword: string
+}
+
 export interface CurrentProfileAccessState {
   isActive: boolean
   mustChangePassword: boolean
