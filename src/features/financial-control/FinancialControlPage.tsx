@@ -4,6 +4,7 @@ import type { IconName } from '../../components/layout/Header'
 import { FindingUpdatePanel } from './FindingUpdatePanel'
 import { DocumentReferencesSection } from './DocumentReferencesSection'
 import { SimplifiedCaseGuide } from './SimplifiedCaseGuide'
+import { ManagerDashboard } from './ManagerDashboard'
 import type { FindingUpdateKind } from './FindingUpdatePanel'
 import './financialControlSimplified.css'
 import { formatArabicDate, formatArabicDateTime } from './dateFormat'
@@ -23,6 +24,11 @@ import type {
   SimplifiedPrimaryActionHandler,
   SimplifiedQueueKey,
 } from './simplifiedCaseViewModel'
+import {
+  buildManagerDashboardViewModel,
+  matchesManagerDashboardFilter,
+} from './managerDashboardViewModel'
+import type { ManagerDashboardFilterKey } from './managerDashboardViewModel'
 import {
   getFinancialControlDashboard,
   transitionFinancialControlAction,
@@ -79,6 +85,7 @@ interface WorkQueueDefinition {
 
 if (import.meta.env.DEV) {
   void import('./caseManagementScenario.dev')
+  void import('./managerDashboardScenario.dev')
 }
 
 interface SuggestedFindingAction {
@@ -414,6 +421,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
   const [dueDateFilter, setDueDateFilter] = useState('all')
   const [sortBy, setSortBy] = useState<FindingSort>('code_asc')
   const [workQueue, setWorkQueue] = useState<WorkQueueKey>('all')
+  const [managerFilter, setManagerFilter] = useState<ManagerDashboardFilterKey | null>(null)
   const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null)
   const [actionProgress, setActionProgress] = useState<Record<string, string>>({})
   const [actionNotes, setActionNotes] = useState<Record<string, string>>({})
@@ -482,6 +490,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
 
       return matchesSearch
         && (!queue || queue.test(finding))
+        && (!managerFilter || matchesManagerDashboardFilter(finding, managerFilter))
         && (ratingFilter === 'all' || finding.assessment_rating === ratingFilter)
         && (statusFilter === 'all' || finding.workflow_status === statusFilter)
         && (ownerFilter === 'all' || finding.official_owner_label === ownerFilter)
@@ -495,10 +504,15 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
       if (sortBy === 'date_desc') return second.official_due_date.localeCompare(first.official_due_date)
       return statusLabels[first.workflow_status].localeCompare(statusLabels[second.workflow_status], 'ar')
     })
-  }, [data, dueDateFilter, ownerFilter, ratingFilter, search, sortBy, statusFilter, workQueue])
+  }, [data, dueDateFilter, managerFilter, ownerFilter, ratingFilter, search, sortBy, statusFilter, workQueue])
 
   const selectedFinding = data?.findings.find((finding) => finding.id === selectedFindingId) ?? null
   const currentRoles = data?.memberships.map((membership) => membership.role) ?? []
+  const isManagerDashboard = currentRoles.some((role) => role === 'owner' || role === 'manager')
+  const managerDashboard = useMemo(
+    () => buildManagerDashboardViewModel(data?.findings ?? []),
+    [data],
+  )
   const currentUserId = data?.memberships[0]?.user_id ?? null
   const profileNames = new Map(data?.profiles.map((profile) => [profile.id, profile.full_name]) ?? [])
   const selectedTimeline = selectedFinding ? buildTimeline(selectedFinding, profileNames) : []
@@ -520,6 +534,15 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
     setDueDateFilter('all')
     setSortBy('code_asc')
     setWorkQueue('all')
+    setManagerFilter(null)
+  }
+
+  const selectManagerFilter = (key: ManagerDashboardFilterKey) => {
+    setManagerFilter((current) => current === key ? null : key)
+    setWorkQueue('all')
+    window.requestAnimationFrame(() => {
+      document.getElementById('all-financial-control-findings')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
   }
 
   const openFinding = (findingId: string) => {
@@ -1075,13 +1098,22 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
         </section>
       ) : data ? (
         <>
-          <div className="stats-grid">
-            {stats.map(({ label, value, icon }) => (
-              <article className="stat-card" key={label}><div className="stat-icon"><Icon name={icon} size={22}/></div><div><span>{label}</span><strong>{value}</strong></div></article>
-            ))}
-          </div>
+          {isManagerDashboard ? (
+            <ManagerDashboard
+              model={managerDashboard}
+              activeFilter={managerFilter}
+              onSelectFilter={selectManagerFilter}
+              onClearFilter={() => setManagerFilter(null)}
+            />
+          ) : (
+            <div className="stats-grid">
+              {stats.map(({ label, value, icon }) => (
+                <article className="stat-card" key={label}><div className="stat-icon"><Icon name={icon} size={22}/></div><div><span>{label}</span><strong>{value}</strong></div></article>
+              ))}
+            </div>
+          )}
 
-          {currentRoles.some((role) => ['owner', 'specialist', 'action_owner'].includes(role)) ? (
+          {!isManagerDashboard && currentRoles.some((role) => ['owner', 'specialist', 'action_owner'].includes(role)) ? (
             <section className="panel" style={{ marginBottom: 20 }} data-testid="employee-work-queues">
               <div className="panel-header">
                 <div><span className="eyebrow">مسار الموظف</span><h2>عملي اليوم</h2><p>اختر قائمة للانتقال مباشرة إلى الملاحظات التي تحتاج انتباهك.</p></div>
@@ -1109,38 +1141,17 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
             </section>
           ) : null}
 
-          {currentRoles.some((role) => role === 'owner' || role === 'manager') ? (
-            <section className="panel" style={{ marginBottom: 20 }} data-testid="manager-work-queues">
-              <div className="panel-header">
-                <div><span className="eyebrow">مسار المدير</span><h2>بانتظار مراجعتي</h2><p>قوائم المراجعة والاعتماد والإغلاق حسب الحالة الفعلية.</p></div>
-              </div>
-              <div className="simplified-queue-grid">
-                {managerQueues.map((queue) => {
-                  const count = data.findings.filter(queue.test).length
-                  const selected = workQueue === queue.key
-                  return (
-                    <button
-                      key={queue.key}
-                      type="button"
-                      onClick={() => setWorkQueue(selected ? 'all' : queue.key)}
-                      aria-pressed={selected}
-                      className="simplified-queue-card"
-                    >
-                      <span style={{ color: 'var(--muted)', display: 'block', marginBottom: 8 }}>{queue.label}</span>
-                      <strong style={{ display: 'block', fontSize: 26 }}>{count}</strong>
-                      <small style={{ color: 'var(--muted)', lineHeight: 1.6 }}>{queue.description}</small>
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
-          ) : null}
-
-          <section className="panel" style={{ marginBottom: 20 }}>
+          <section className="panel" id="all-financial-control-findings" style={{ marginBottom: 20, scrollMarginTop: 96 }}>
             <div className="panel-header">
-              <div><h2>البحث والتصفية</h2><p>ابحث في الكود أو النص الرسمي أو الجهة المسؤولة</p></div>
+              <div><span className="eyebrow">جميع السجلات</span><h2>البحث والتصفية</h2><p>ابحث في الكود أو النص الرسمي أو الجهة المسؤولة</p></div>
               <button className="text-button" type="button" onClick={resetFilters}>إعادة الضبط</button>
             </div>
+            {managerFilter ? (
+              <div className="manager-active-filter" role="status" style={{ marginBottom: 14 }}>
+                الفلتر النشط: <strong>{[...managerDashboard.waiting, ...managerDashboard.alerts, ...managerDashboard.decisions].find((item) => item.key === managerFilter)?.label}</strong>
+                <button className="text-button" type="button" onClick={() => setManagerFilter(null)} style={{ marginInlineStart: 10 }}>إلغاء الفلتر</button>
+              </div>
+            ) : null}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
               <input aria-label="بحث الملاحظات" data-testid="finding-search" style={controlStyle} value={search} onChange={(event) => setSearch(event.target.value)} placeholder="الكود أو النص أو المسؤول" />
               <select aria-label="تصفية حسب التقييم" data-testid="rating-filter" style={controlStyle} value={ratingFilter} onChange={(event) => setRatingFilter(event.target.value as 'all' | FinancialControlAssessmentRating)}>
@@ -1172,7 +1183,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
 
           <section className="panel" data-testid="findings-panel">
             <div className="panel-header">
-              <div><h2>{workQueue === 'all' ? 'الملاحظات الرقابية' : [...employeeQueues, ...managerQueues].find((queue) => queue.key === workQueue)?.label}</h2><p aria-live="polite" data-testid="findings-count">عرض {filteredFindings.length} من {data.findings.length} ملاحظة</p></div>
+              <div><h2>جميع الملاحظات</h2><p aria-live="polite" data-testid="findings-count">عرض {filteredFindings.length} من {data.findings.length} ملاحظة</p></div>
             </div>
             {filteredFindings.length > 0 ? (
               <>
