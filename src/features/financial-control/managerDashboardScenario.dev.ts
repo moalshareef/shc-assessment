@@ -36,6 +36,7 @@ function finding(
     messages: [],
     comments: [],
     ...overrides,
+    follow_ups: overrides.follow_ups ?? [],
   }
 }
 

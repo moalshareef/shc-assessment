@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase'
 import type {
   CorrectiveActionStatus,
   AddFollowUpCommentInput,
+  CreateFinancialControlFollowUpInput,
   CorrectiveActionDocumentReference,
   DecideDocumentReferenceInput,
   DeleteDocumentReferenceInput,
@@ -11,17 +12,21 @@ import type {
   FinancialControlDashboardData,
   FinancialControlFinding,
   FinancialControlFindingStatus,
+  FinancialControlFollowUp,
   FinancialControlMembership,
   FinancialControlMessage,
+  FinancialControlOrganization,
   FinancialControlProfile,
   FinancialControlStatusHistory,
   FinancialControlSummary,
   FinancialControlWorkspace,
   RecordOfficialReplyInput,
   RecordSentEmailInput,
+  SetFinancialControlFollowUpStatusInput,
   TransitionCorrectiveActionInput,
   TransitionFindingInput,
   UpdateDocumentReferenceInput,
+  UpdateFinancialControlFollowUpInput,
   UpdateCorrectiveActionProgressAndStartInput,
   UpdateCorrectiveActionProgressInput,
 } from '../types/financialControl'
@@ -61,6 +66,10 @@ function toMutationError(error: SupabaseErrorLike | null, fallbackMessage: strin
 
   if (error?.code === '42501') {
     return new FinancialControlServiceError('permission', 'ليس لديك صلاحية لتنفيذ هذا الإجراء.')
+  }
+
+  if (error?.code === '22023' || error?.code === 'P0002') {
+    return new FinancialControlServiceError('validation', error.message || fallbackMessage)
   }
 
   if (
@@ -153,7 +162,17 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     )
   }
 
-  const [findingsResult, actionsResult, referencesResult, historyResult, messagesResult, commentsResult, profilesResult] = await Promise.all([
+  const [
+    findingsResult,
+    actionsResult,
+    referencesResult,
+    historyResult,
+    messagesResult,
+    commentsResult,
+    profilesResult,
+    organizationsResult,
+    followUpsResult,
+  ] = await Promise.all([
     supabase
       .from('financial_control_findings')
       .select('id, workspace_id, sequence_no, case_code, reference_code, title, assessment_rating, assessment_rating_label, official_owner_label, workflow_status, progress_percent, official_due_date, current_due_date, official_finding_text, control_reference, control_summary, last_activity_at, updated_at, lock_version')
@@ -189,6 +208,16 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
       .from('profiles')
       .select('id, full_name')
       .eq('is_active', true),
+    supabase
+      .from('organizations')
+      .select('id, organization_name_ar')
+      .eq('status', 'active')
+      .order('display_order', { ascending: true }),
+    supabase
+      .from('financial_control_follow_ups')
+      .select('id, workspace_id, finding_id, follow_up_type, target_organization_id, target_user_id, title, body, priority, due_at, status, created_by, created_at, updated_at, completed_by, completed_at, cancelled_by, cancelled_at, lock_version')
+      .eq('workspace_id', workspace.id)
+      .order('created_at', { ascending: false }),
   ])
 
   if (
@@ -199,6 +228,8 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     || messagesResult.error
     || commentsResult.error
     || profilesResult.error
+    || organizationsResult.error
+    || followUpsResult.error
   ) {
     throw new FinancialControlServiceError(
       'query',
@@ -215,10 +246,13 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
   const messages = (messagesResult.data ?? []) as FinancialControlMessage[]
   const comments = (commentsResult.data ?? []) as FinancialControlComment[]
   const profiles = (profilesResult.data ?? []) as FinancialControlProfile[]
+  const organizations = (organizationsResult.data ?? []) as FinancialControlOrganization[]
+  const followUps = (followUpsResult.data ?? []) as FinancialControlFollowUp[]
   const actionsByFinding = new Map<string, FinancialControlCorrectiveAction[]>()
   const historyByFinding = new Map<string, FinancialControlStatusHistory[]>()
   const messagesByFinding = new Map<string, FinancialControlMessage[]>()
   const commentsByFinding = new Map<string, FinancialControlComment[]>()
+  const followUpsByFinding = new Map<string, FinancialControlFollowUp[]>()
   const referencesByAction = new Map<string, CorrectiveActionDocumentReference[]>()
 
   documentReferences.forEach((reference) => {
@@ -256,9 +290,15 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     commentsByFinding.set(comment.finding_id, current)
   })
 
+  followUps.forEach((followUp) => {
+    const current = followUpsByFinding.get(followUp.finding_id) ?? []
+    current.push(followUp)
+    followUpsByFinding.set(followUp.finding_id, current)
+  })
+
   const findings = ((findingsResult.data ?? []) as Omit<
     FinancialControlFinding,
-    'official_recommendation' | 'corrective_actions' | 'status_history' | 'messages' | 'comments'
+    'official_recommendation' | 'corrective_actions' | 'status_history' | 'messages' | 'comments' | 'follow_ups'
   >[]).map((finding) => {
     const findingActions = actionsByFinding.get(finding.id) ?? []
 
@@ -269,6 +309,7 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
       status_history: historyByFinding.get(finding.id) ?? [],
       messages: messagesByFinding.get(finding.id) ?? [],
       comments: commentsByFinding.get(finding.id) ?? [],
+      follow_ups: followUpsByFinding.get(finding.id) ?? [],
     }
   })
 
@@ -279,6 +320,8 @@ export async function getFinancialControlDashboard(): Promise<FinancialControlDa
     correctiveActions,
     documentReferences,
     profiles,
+    organizations,
+    followUps,
     summary: buildSummary(findings, correctiveActions),
   }
 }
@@ -365,6 +408,62 @@ export async function addFollowUpComment(input: AddFollowUpCommentInput): Promis
   })
 
   if (error) throw toMutationError(error, 'تعذر إضافة ملاحظة المتابعة.')
+}
+
+export async function createFinancialControlFollowUp(
+  input: CreateFinancialControlFollowUpInput,
+): Promise<FinancialControlFollowUp> {
+  const body = requireText(input.body, 'نص المتابعة')
+  if (!input.dueAt) throw new FinancialControlServiceError('validation', 'تاريخ المتابعة أو الموعد المطلوب إلزامي.')
+  if (input.followUpType === 'reminder' && !input.targetOrganizationId && !input.targetUserId) {
+    throw new FinancialControlServiceError('validation', 'الجهة المستهدفة مطلوبة.')
+  }
+  if (input.followUpType === 'employee_direction' && !input.targetUserId) {
+    throw new FinancialControlServiceError('validation', 'الموظف المستهدف مطلوب.')
+  }
+
+  const { data, error } = await supabase.rpc('financial_control_create_follow_up', {
+    p_finding_id: input.findingId,
+    p_follow_up_type: input.followUpType,
+    p_target_organization_id: input.targetOrganizationId,
+    p_target_user_id: input.targetUserId,
+    p_title: input.title.trim() || null,
+    p_body: body,
+    p_priority: input.priority,
+    p_due_at: new Date(input.dueAt).toISOString(),
+  })
+
+  if (error) throw toMutationError(error, 'تعذر إنشاء المتابعة التشغيلية.')
+  return data as FinancialControlFollowUp
+}
+
+export async function updateFinancialControlFollowUp(
+  input: UpdateFinancialControlFollowUpInput,
+): Promise<FinancialControlFollowUp> {
+  const { data, error } = await supabase.rpc('financial_control_update_follow_up', {
+    p_follow_up_id: input.followUpId,
+    p_title: input.title.trim() || null,
+    p_body: requireText(input.body, 'نص المتابعة'),
+    p_priority: input.priority,
+    p_due_at: input.dueAt ? new Date(input.dueAt).toISOString() : null,
+    p_expected_lock_version: input.expectedLockVersion,
+  })
+
+  if (error) throw toMutationError(error, 'تعذر تحديث المتابعة التشغيلية.')
+  return data as FinancialControlFollowUp
+}
+
+export async function setFinancialControlFollowUpStatus(
+  input: SetFinancialControlFollowUpStatusInput,
+): Promise<FinancialControlFollowUp> {
+  const { data, error } = await supabase.rpc('financial_control_set_follow_up_status', {
+    p_follow_up_id: input.followUpId,
+    p_status: input.status,
+    p_expected_lock_version: input.expectedLockVersion,
+  })
+
+  if (error) throw toMutationError(error, 'تعذر تحديث حالة المتابعة التشغيلية.')
+  return data as FinancialControlFollowUp
 }
 
 export async function updateCorrectiveActionProgress(

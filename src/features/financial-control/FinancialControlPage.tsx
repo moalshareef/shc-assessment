@@ -5,6 +5,8 @@ import { FindingUpdatePanel } from './FindingUpdatePanel'
 import { DocumentReferencesSection } from './DocumentReferencesSection'
 import { SimplifiedCaseGuide } from './SimplifiedCaseGuide'
 import { ManagerDashboard } from './ManagerDashboard'
+import { FollowUpActionPanel } from './FollowUpActionPanel'
+import { FollowUpErrorBoundary } from './FollowUpErrorBoundary'
 import type { FindingUpdateKind } from './FindingUpdatePanel'
 import './financialControlSimplified.css'
 import { formatArabicDate, formatArabicDateTime } from './dateFormat'
@@ -18,6 +20,7 @@ import {
 import type { CaseSnapshot } from './caseManagementModel'
 import {
   buildSimplifiedCaseViewModel,
+  hasManagerExperienceAccess,
   simplifiedCaseQueues,
 } from './simplifiedCaseViewModel'
 import type {
@@ -30,19 +33,29 @@ import {
 } from './managerDashboardViewModel'
 import type { ManagerDashboardFilterKey } from './managerDashboardViewModel'
 import {
+  employeeDirectionsForUser,
+  followUpPriorityLabels,
+  followUpStatusLabels,
+  followUpTypeLabels,
+} from './followUpModel'
+import {
   getFinancialControlDashboard,
+  createFinancialControlFollowUp,
+  setFinancialControlFollowUpStatus,
   transitionFinancialControlAction,
   transitionFinancialControlFinding,
   updateCorrectiveActionProgressAndStart,
 } from '../../services/financialControlService'
 import type {
   CorrectiveActionStatus,
+  CreateFinancialControlFollowUpInput,
   FinancialControlAssessmentRating,
   FinancialControlCorrectiveAction,
   FinancialControlDashboardData,
   FinancialControlFinding,
   FinancialControlFindingStatus,
   FinancialControlRole,
+  SetFinancialControlFollowUpStatusInput,
 } from '../../types/financialControl'
 import { FinancialControlServiceError } from '../../types/financialControl'
 
@@ -86,6 +99,7 @@ interface WorkQueueDefinition {
 if (import.meta.env.DEV) {
   void import('./caseManagementScenario.dev')
   void import('./managerDashboardScenario.dev')
+  void import('./followUpScenario.dev')
 }
 
 interface SuggestedFindingAction {
@@ -164,6 +178,7 @@ function lastActivityTimestamp(finding: FinancialControlFinding) {
     ...finding.comments.map((comment) => comment.created_at),
     ...finding.status_history.map((item) => item.changed_at),
     ...finding.corrective_actions.map((action) => action.updated_at),
+    ...(finding.follow_ups ?? []).map((followUp) => followUp.updated_at),
   ].filter((value): value is string => Boolean(value))
 
   return timestamps.sort((first, second) => new Date(second).getTime() - new Date(first).getTime())[0]
@@ -361,6 +376,15 @@ function buildTimeline(
         progress: action.progress_percent,
         reference: null,
       })),
+    ...(finding.follow_ups ?? []).map((followUp) => ({
+      id: `follow-up-${followUp.id}-${followUp.lock_version}`,
+      type: followUpTypeLabels[followUp.follow_up_type],
+      date: followUp.updated_at,
+      actor: actorName(followUp.created_by),
+      text: `${followUp.title ? `${followUp.title} — ` : ''}${followUp.body} — الأولوية: ${followUpPriorityLabels[followUp.priority]} — الحالة: ${followUpStatusLabels[followUp.status]}${followUp.due_at ? ` — الموعد: ${formatArabicDateTime(followUp.due_at)}` : ''}`,
+      progress: null,
+      reference: null,
+    })),
   ]
 
   return events.sort((first, second) => new Date(second.date).getTime() - new Date(first.date).getTime())
@@ -508,7 +532,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
 
   const selectedFinding = data?.findings.find((finding) => finding.id === selectedFindingId) ?? null
   const currentRoles = data?.memberships.map((membership) => membership.role) ?? []
-  const isManagerDashboard = currentRoles.some((role) => role === 'owner' || role === 'manager')
+  const isManagerDashboard = hasManagerExperienceAccess(currentRoles)
   const managerDashboard = useMemo(
     () => buildManagerDashboardViewModel(data?.findings ?? []),
     [data],
@@ -547,7 +571,7 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
 
   const openFinding = (findingId: string) => {
     setSelectedFindingId(findingId)
-    setAdvancedView(false)
+    setAdvancedView(isManagerDashboard)
     setDocumentOpenRequest(0)
     setDocumentExpandRequest(0)
   }
@@ -568,6 +592,20 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
     } finally {
       setMutationKey(null)
     }
+  }
+
+  const handleCreateFollowUp = (input: CreateFinancialControlFollowUpInput) => runMutation(
+    `follow-up-create-${input.followUpType}`,
+    input.followUpType === 'reminder' ? 'تم تسجيل التذكير بنجاح.' : 'تم حفظ توجيه الموظف بنجاح.',
+    async () => { await createFinancialControlFollowUp(input) },
+  )
+
+  const handleSetFollowUpStatus = (input: SetFinancialControlFollowUpStatusInput) => {
+    void runMutation(
+      `follow-up-status-${input.followUpId}`,
+      input.status === 'completed' ? 'تم إنجاز المتابعة.' : 'تم إلغاء المتابعة.',
+      async () => { await setFinancialControlFollowUpStatus(input) },
+    )
   }
 
   const handleProgressSave = (action: FinancialControlCorrectiveAction) => {
@@ -694,6 +732,9 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
     )
     const assignedActionForUpdate = selectedFinding.corrective_actions.find((action) =>
       action.responsible_user_id === currentUserId) ?? selectedFinding.corrective_actions[0]
+    const employeeDirections = currentUserId
+      ? employeeDirectionsForUser(selectedFinding.follow_ups ?? [], currentUserId)
+      : []
 
     const openAdvancedExecution = () => {
       if (!assignedActionForUpdate) return
@@ -824,6 +865,37 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
           primaryControl={renderSimplifiedPrimary(simplifiedModel.primaryActionHandler)}
           secondaryControls={renderSimplifiedSecondary()}
         />
+
+        {simplifiedModel.actorType === 'manager' ? (
+          <FollowUpErrorBoundary resetKey={selectedFinding.id}>
+            <FollowUpActionPanel
+              finding={selectedFinding}
+              profiles={data?.profiles ?? []}
+              organizations={data?.organizations ?? []}
+              busy={mutationKey !== null}
+              onCreate={handleCreateFollowUp}
+            />
+          </FollowUpErrorBoundary>
+        ) : null}
+
+        {employeeDirections.length > 0 ? (
+          <section className="employee-direction-list" aria-labelledby="employee-directions-title" data-testid="employee-directions">
+            <div className="manager-section__header">
+              <div><span className="eyebrow">توجيهات المدير</span><h2 id="employee-directions-title">التوجيهات الموجهة لك</h2></div>
+              <span className="status">{employeeDirections.length}</span>
+            </div>
+            {employeeDirections.map((direction) => (
+              <article className={`employee-direction-card ${direction.priority === 'urgent' ? 'employee-direction-card--urgent' : ''}`} key={direction.id}>
+                <div>
+                  <strong>{followUpPriorityLabels[direction.priority]}</strong>
+                  <span>{direction.due_at ? `الموعد المطلوب: ${formatArabicDateTime(direction.due_at)}` : 'دون موعد محدد'}</span>
+                </div>
+                <p>{direction.body}</p>
+                <small>الحالة: {followUpStatusLabels[direction.status]}</small>
+              </article>
+            ))}
+          </section>
+        ) : null}
 
         <div className="simplified-mode-toolbar">
           <button className="text-button" type="button" onClick={() => setAdvancedView((current) => !current)} aria-expanded={advancedView}>
@@ -1104,6 +1176,13 @@ export function FinancialControlPage({ onOpenWorkspace }: FinancialControlPagePr
               activeFilter={managerFilter}
               onSelectFilter={selectManagerFilter}
               onClearFilter={() => setManagerFilter(null)}
+              findings={data.findings}
+              followUps={data.followUps}
+              profiles={data.profiles}
+              organizations={data.organizations}
+              busy={mutationKey !== null}
+              onOpenFinding={openFinding}
+              onSetFollowUpStatus={handleSetFollowUpStatus}
             />
           ) : (
             <div className="stats-grid">

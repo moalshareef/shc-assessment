@@ -26,6 +26,10 @@ export type DocumentStorageLocation =
 
 export type DocumentVerificationStatus = 'pending' | 'approved' | 'rejected'
 
+export type FinancialControlFollowUpType = 'reminder' | 'employee_direction'
+export type FinancialControlFollowUpPriority = 'normal' | 'urgent'
+export type FinancialControlFollowUpStatus = 'open' | 'completed' | 'cancelled'
+
 export type FinancialControlAssessmentRating = 'partially_effective' | 'not_exists'
 
 export interface FinancialControlWorkspace {
@@ -76,6 +80,60 @@ export interface FinancialControlFinding {
   status_history: FinancialControlStatusHistory[]
   messages: FinancialControlMessage[]
   comments: FinancialControlComment[]
+  follow_ups: FinancialControlFollowUp[]
+}
+
+export interface FinancialControlOrganization {
+  id: string
+  organization_name_ar: string
+}
+
+export interface FinancialControlFollowUp {
+  id: string
+  workspace_id: string
+  finding_id: string
+  follow_up_type: FinancialControlFollowUpType
+  target_organization_id: string | null
+  target_user_id: string | null
+  title: string | null
+  body: string
+  priority: FinancialControlFollowUpPriority
+  due_at: string | null
+  status: FinancialControlFollowUpStatus
+  created_by: string
+  created_at: string
+  updated_at: string
+  completed_by: string | null
+  completed_at: string | null
+  cancelled_by: string | null
+  cancelled_at: string | null
+  lock_version: number
+}
+
+export interface CreateFinancialControlFollowUpInput {
+  findingId: string
+  followUpType: FinancialControlFollowUpType
+  targetOrganizationId: string | null
+  targetUserId: string | null
+  title: string
+  body: string
+  priority: FinancialControlFollowUpPriority
+  dueAt: string
+}
+
+export interface UpdateFinancialControlFollowUpInput {
+  followUpId: string
+  title: string
+  body: string
+  priority: FinancialControlFollowUpPriority
+  dueAt: string
+  expectedLockVersion: number
+}
+
+export interface SetFinancialControlFollowUpStatusInput {
+  followUpId: string
+  status: Extract<FinancialControlFollowUpStatus, 'completed' | 'cancelled'>
+  expectedLockVersion: number
 }
 
 export interface FinancialControlCorrectiveAction {
@@ -262,6 +320,8 @@ export interface FinancialControlDashboardData {
   correctiveActions: FinancialControlCorrectiveAction[]
   documentReferences: CorrectiveActionDocumentReference[]
   profiles: FinancialControlProfile[]
+  organizations: FinancialControlOrganization[]
+  followUps: FinancialControlFollowUp[]
   summary: FinancialControlSummary
 }
 

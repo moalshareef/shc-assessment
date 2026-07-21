@@ -94,6 +94,7 @@ function lastActivityAt(finding: FinancialControlFinding) {
     ...finding.corrective_actions.flatMap((action) =>
       action.document_references.map((reference) => reference.updated_at),
     ),
+    ...(finding.follow_ups ?? []).map((followUp) => followUp.updated_at),
   ].filter((value): value is string => Boolean(value))
 
   return timestamps.sort((first, second) => Date.parse(second) - Date.parse(first))[0] ?? null

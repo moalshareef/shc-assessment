@@ -277,6 +277,37 @@
 
 **التدقيق/versioning:** الرسالة المرسلة/المستلمة غير قابلة للتعديل؛ أي تصحيح يسجل كقيد جديد.
 
+### 3.7A `financial_control_follow_ups`
+
+**الغرض:** تخزين المتابعات التشغيلية البسيطة للمدير دون تغيير حالة الملاحظة أو استخدام نصوص حرة لحفظ metadata.
+
+**الحقول الأساسية:**
+
+- `id uuid` — PK.
+- `workspace_id uuid` — FK إلى `workspaces.id`.
+- `finding_id uuid` — FK إلى `financial_control_findings.id` مع قيد نطاق Workspace مركب.
+- `follow_up_type text` — `reminder` أو `employee_direction`.
+- `target_organization_id uuid` — FK nullable إلى `organizations.id`.
+- `target_user_id uuid` — FK nullable إلى `profiles.id`.
+- `title text` — عنوان اختياري على مستوى الجدول وإلزامي للتذكير عبر RPC.
+- `body text` — النص التشغيلي غير الفارغ.
+- `priority text` — `normal` أو `urgent`.
+- `due_at timestamptz` — موعد المتابعة أو الموعد المطلوب.
+- `status text` — `open` أو `completed` أو `cancelled`.
+- `created_by` و`created_at` و`updated_at` و`lock_version`.
+- بيانات الإنجاز: `completed_by` و`completed_at`.
+- بيانات الإلغاء: `cancelled_by` و`cancelled_at`.
+
+**قواعد الاتساق:**
+
+- التذكير يتطلب منظمة مستهدفة أو مستخدمًا إداريًا صالحًا.
+- توجيه الموظف يتطلب `target_user_id`، وتتحقق RPC من أنه مسند إلى إجراء داخل الملاحظة.
+- الإنجاز والإلغاء يتطلبان هوية المنفذ ووقت العملية، ولا يجتمعان في سجل واحد.
+- لا DELETE ولا إعادة فتح في المرحلة الثانية.
+- لا يحدّث الجدول أو RPCs أي حالة في `financial_control_findings`.
+
+**RLS/Audit:** المدير أو المالك يقرأ ويكتب عبر RPCs فقط. الموظف يقرأ توجيه الموظف الموجه إليه وضمن نطاقه فقط. يسجل Trigger كل إنشاء أو تحديث أو إنجاز أو إلغاء في `audit_logs`.
+
 ### 3.8 `finding_attachments`
 
 **الغرض:** البيانات الوصفية للأدلة والمرفقات المخزنة في حاوية خاصة داخل Supabase Storage، مع أدلة مستقلة لكل إجراء تصحيحي.
@@ -437,7 +468,8 @@
 - `workspaces` 1 ← N `financial_control_unit_aliases` و`financial_control_escalation_rules`.
 - `financial_control_findings` 1 ← N `financial_control_finding_versions`.
 - `financial_control_findings` 1 ← N `corrective_actions`.
-- `financial_control_findings` 1 ← N `finding_assignments` و`finding_comments` و`finding_messages` و`finding_attachments` و`finding_status_history` و`extension_requests` و`escalations` و`approvals`.
+- `financial_control_findings` 1 ← N `finding_assignments` و`finding_comments` و`finding_messages` و`financial_control_follow_ups` و`finding_attachments` و`finding_status_history` و`extension_requests` و`escalations` و`approvals`.
+- `workspaces` 1 ← N `financial_control_follow_ups`، و`organizations` و`profiles` 1 ← N كجهات أو مستخدمين مستهدفين.
 - `corrective_actions` 1 ← N الإسنادات والتعليقات والرسائل والمرفقات والتاريخ والتمديدات والتصعيدات والاعتمادات.
 - `corrective_actions` 1 ← N `finding_attachments` من نوع الدليل و`corrective_action_status_history`، بما يضمن أدلة وحالة مستقلة لكل إجراء.
 - `finding_messages` 1 ← N رسائل الرد عبر `parent_message_id`.

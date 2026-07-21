@@ -1,6 +1,18 @@
 import { useState } from 'react'
 import { formatArabicDateTime } from './dateFormat'
 import type {
+  FinancialControlFinding,
+  FinancialControlFollowUp,
+  FinancialControlOrganization,
+  FinancialControlProfile,
+  SetFinancialControlFollowUpStatusInput,
+} from '../../types/financialControl'
+import {
+  buildUpcomingFollowUps,
+  followUpStatusLabels,
+  followUpTypeLabels,
+} from './followUpModel'
+import type {
   ManagerDashboardFilterKey,
   ManagerDashboardItemDefinition,
   ManagerDashboardViewModel,
@@ -11,6 +23,13 @@ interface ManagerDashboardProps {
   activeFilter: ManagerDashboardFilterKey | null
   onSelectFilter: (key: ManagerDashboardFilterKey) => void
   onClearFilter: () => void
+  findings: FinancialControlFinding[]
+  followUps: FinancialControlFollowUp[]
+  profiles: FinancialControlProfile[]
+  organizations: FinancialControlOrganization[]
+  busy: boolean
+  onOpenFinding: (findingId: string) => void
+  onSetFollowUpStatus: (input: SetFinancialControlFollowUpStatusInput) => void
 }
 
 function QueueButton({
@@ -36,7 +55,19 @@ function QueueButton({
   )
 }
 
-export function ManagerDashboard({ model, activeFilter, onSelectFilter, onClearFilter }: ManagerDashboardProps) {
+export function ManagerDashboard({
+  model,
+  activeFilter,
+  onSelectFilter,
+  onClearFilter,
+  findings,
+  followUps,
+  profiles,
+  organizations,
+  busy,
+  onOpenFinding,
+  onSetFollowUpStatus,
+}: ManagerDashboardProps) {
   const [showAllDepartments, setShowAllDepartments] = useState(false)
   const activeLabel = [...model.waiting, ...model.alerts, ...model.decisions]
     .find((item) => item.key === activeFilter)?.label
@@ -47,6 +78,7 @@ export function ManagerDashboard({ model, activeFilter, onSelectFilter, onClearF
     on_track: { label: 'على المسار', tone: 'success' },
     no_current_deviation: { label: 'لا يوجد انحراف حالي', tone: 'muted' },
   } as const
+  const upcomingFollowUps = buildUpcomingFollowUps(followUps, findings, profiles, organizations)
 
   return (
     <div className="manager-dashboard" data-testid="manager-dashboard">
@@ -88,6 +120,36 @@ export function ManagerDashboard({ model, activeFilter, onSelectFilter, onClearF
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="panel manager-section" aria-labelledby="manager-upcoming-follow-ups-title" data-testid="manager-upcoming-follow-ups">
+        <div className="manager-section__header">
+          <div><span className="eyebrow">إجراءات مسجلة</span><h2 id="manager-upcoming-follow-ups-title">متابعات قادمة</h2></div>
+          <span className="status">{upcomingFollowUps.length} مفتوحة</span>
+        </div>
+        {upcomingFollowUps.length > 0 ? (
+          <div className="follow-up-upcoming-list">
+            {upcomingFollowUps.map(({ followUp, organizationLabel, findingLabel, responsibleLabel }) => (
+              <article className="follow-up-upcoming-card" key={followUp.id}>
+                <div className="follow-up-upcoming-card__heading">
+                  <div><strong>{organizationLabel}</strong><span>{findingLabel}</span></div>
+                  <span className={`status ${followUp.priority === 'urgent' ? 'danger' : ''}`}>{followUpTypeLabels[followUp.follow_up_type]}</span>
+                </div>
+                <div className="follow-up-upcoming-meta">
+                  <span>التاريخ: <strong>{followUp.due_at ? formatArabicDateTime(followUp.due_at) : 'غير محدد'}</strong></span>
+                  <span>المسؤول: <strong>{responsibleLabel}</strong></span>
+                  <span>الحالة: <strong>{followUpStatusLabels[followUp.status]}</strong></span>
+                </div>
+                <p>{followUp.title ?? followUp.body}</p>
+                <div className="follow-up-upcoming-actions">
+                  <button className="text-button" type="button" onClick={() => onOpenFinding(followUp.finding_id)}>فتح الملاحظة</button>
+                  <button className="secondary-button" type="button" disabled={busy} onClick={() => onSetFollowUpStatus({ followUpId: followUp.id, status: 'completed', expectedLockVersion: followUp.lock_version })}>إنجاز</button>
+                  <button className="secondary-button" type="button" disabled={busy} onClick={() => onSetFollowUpStatus({ followUpId: followUp.id, status: 'cancelled', expectedLockVersion: followUp.lock_version })}>إلغاء</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : <p className="manager-empty">لا توجد متابعات قادمة مفتوحة.</p>}
       </section>
 
       <section className="panel manager-section" aria-labelledby="manager-departments-title">

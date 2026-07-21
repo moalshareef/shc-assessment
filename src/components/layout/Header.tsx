@@ -1,3 +1,7 @@
+import { userIdentityContextLabel } from './userIdentityModel'
+import type { UserIdentity } from './userIdentityModel'
+import './userIdentity.css'
+
 export type IconName = 'home' | 'workspace' | 'tasks' | 'approval' | 'report' | 'settings' | 'search' | 'bell' | 'menu' | 'arrow' | 'shield' | 'clock' | 'check' | 'alert' | 'users' | 'trend'
 
 export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
@@ -25,19 +29,34 @@ export function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
 interface HeaderProps {
   onSidebarOpen: () => void
   onSignOut: () => void
+  onChangePassword: () => void
   signOutLoading: boolean
+  identity: UserIdentity
 }
 
-export function Header({ onSidebarOpen, onSignOut, signOutLoading }: HeaderProps) {
+export function Header({ onSidebarOpen, onSignOut, onChangePassword, signOutLoading, identity }: HeaderProps) {
   return (
     <header className="topbar">
       <button className="icon-button mobile-only" onClick={onSidebarOpen} aria-label="فتح القائمة"><Icon name="menu" size={22}/></button>
-      <div className="topbar-title"><span>مرحبًا بك</span><strong>منصة المتابعة والاعتماد</strong></div>
+      <details className="user-identity" data-testid="user-identity">
+        <summary aria-label="فتح قائمة الحساب">
+          <span className="user-identity__avatar" aria-hidden="true">{identity.initials}</span>
+          <span className="user-identity__primary">
+            <strong>{identity.fullName}</strong>
+            <small className="user-identity__context-line">{userIdentityContextLabel(identity)}</small>
+            <small className="user-identity__email">{identity.email}</small>
+          </span>
+          <span className="user-identity__chevron" aria-hidden="true">⌄</span>
+        </summary>
+        <div className="user-identity__menu">
+          <div className="user-identity__menu-heading"><strong>معلومات الحساب</strong><span>{identity.fullName}</span></div>
+          <dl><div><dt>البريد الإلكتروني</dt><dd dir="ltr">{identity.email}</dd></div><div><dt>الدور</dt><dd>{identity.roleLabel}</dd></div><div><dt>مساحة العمل</dt><dd>{identity.workspaceLabel}</dd></div></dl>
+          <button type="button" onClick={onChangePassword}>تغيير كلمة المرور</button>
+          <button type="button" onClick={onSignOut} disabled={signOutLoading}>{signOutLoading ? 'جاري الخروج...' : 'تسجيل الخروج'}</button>
+        </div>
+      </details>
       <div className="search-box"><Icon name="search" size={19}/><input placeholder="ابحث في المنصة..." aria-label="البحث" /></div>
       <button className="icon-button" aria-label="التنبيهات"><Icon name="bell" size={21}/></button>
-      <button className="secondary-button" type="button" onClick={onSignOut} disabled={signOutLoading}>
-        {signOutLoading ? 'جاري الخروج...' : 'تسجيل الخروج'}
-      </button>
     </header>
   )
 }

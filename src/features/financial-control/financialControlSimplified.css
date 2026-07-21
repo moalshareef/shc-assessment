@@ -499,6 +499,152 @@
   height: 10px;
 }
 
+.follow-up-actions,
+.employee-direction-list {
+  display: grid;
+  gap: 14px;
+}
+
+.follow-up-reminder-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.follow-up-reminder-summary strong {
+  color: var(--blue);
+  font-size: 24px;
+}
+
+.follow-up-action-buttons,
+.follow-up-upcoming-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.follow-up-modal-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(18 38 56 / 55%);
+}
+
+.follow-up-modal {
+  display: grid;
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  gap: 15px;
+  padding: 22px;
+  overflow-y: auto;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(18 38 56 / 24%);
+}
+
+.follow-up-modal label {
+  display: grid;
+  gap: 7px;
+  color: #294158;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.follow-up-modal input,
+.follow-up-modal select,
+.follow-up-modal textarea {
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #fff;
+  color: #17324d;
+  font: inherit;
+}
+
+.follow-up-modal textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.follow-up-upcoming-list,
+.employee-direction-list {
+  display: grid;
+  gap: 10px;
+}
+
+.follow-up-upcoming-card,
+.employee-direction-card {
+  display: grid;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: #fff;
+}
+
+.follow-up-upcoming-card__heading,
+.employee-direction-card > div:first-child {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.follow-up-upcoming-card__heading div,
+.employee-direction-card > div:first-child {
+  min-width: 0;
+}
+
+.follow-up-upcoming-card__heading strong,
+.follow-up-upcoming-card__heading span,
+.employee-direction-card strong,
+.employee-direction-card span {
+  display: block;
+}
+
+.follow-up-upcoming-card__heading div span,
+.employee-direction-card span,
+.employee-direction-card small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.follow-up-upcoming-card p,
+.employee-direction-card p {
+  margin: 0;
+  color: #2d4357;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.follow-up-upcoming-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.employee-direction-list {
+  margin-bottom: 16px;
+  padding: 18px;
+  border: 1px solid #c9dbea;
+  border-radius: 14px;
+  background: #f6fbff;
+}
+
+.employee-direction-card--urgent {
+  border-color: #e6b1b1;
+  background: #fff8f8;
+}
+
 @media (max-width: 1180px) {
   .manager-overview-grid,
   .manager-queue-grid {
@@ -628,5 +774,34 @@
 
   .manager-queue-card span {
     min-height: 0;
+  }
+
+  .follow-up-modal-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .follow-up-modal {
+    width: 100%;
+    max-height: 100vh;
+    padding: 18px 16px;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .follow-up-action-buttons,
+  .follow-up-upcoming-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .follow-up-action-buttons button,
+  .follow-up-upcoming-actions button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .follow-up-upcoming-card__heading,
+  .employee-direction-card > div:first-child {
+    display: grid;
   }
 }

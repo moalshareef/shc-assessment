@@ -9,6 +9,7 @@ import {
 import type { CaseSnapshot, CaseWorkQueueKey } from './caseManagementModel'
 import {
   buildSimplifiedCaseViewModel,
+  hasManagerExperienceAccess,
   simplifiedCaseQueues,
 } from './simplifiedCaseViewModel'
 
@@ -200,7 +201,17 @@ export function runSimplifiedCaseScenario() {
     lastActivityAt: '2026-07-15T08:00:00+03:00',
   }
   const original = JSON.stringify(base)
+  const managerRoles = ['manager'] as const
+  const managerView = buildSimplifiedCaseViewModel({
+    snapshot: base,
+    roles: [...managerRoles],
+    isAssignedEmployee: false,
+  })
   const checks = [
+    assert(
+      managerView.actorType === 'manager' && hasManagerExperienceAccess([...managerRoles]),
+      'المستخدم الذي يرى مسار المدير يجب أن يرى FollowUpActionPanel.',
+    ),
     assert(simplifiedModel(base).primaryActionHandler === 'record_sent_email', 'الموظف قبل التواصل يرى تسجيل البريد كإجراء رئيسي.'),
     assert(simplifiedModel({ ...base, sentEmailDates: ['2026-07-15T09:00:00+03:00'] }).primaryActionHandler === 'record_follow_up_or_reply', 'الموظف بانتظار الرد يرى تسجيل متابعة أو رد.'),
     assert(simplifiedModel({ ...base, progress: 50, correctiveActionStatuses: ['in_progress'], sentEmailDates: ['2026-07-15T09:00:00+03:00'], officialReplyDates: ['2026-07-15T10:00:00+03:00'] }).primaryActionHandler === 'update_progress', 'الموظف عند 50% يرى تحديث التقدم.'),
@@ -241,7 +252,7 @@ export function runSimplifiedCaseScenario() {
 export const developmentScenarioResults = runDevelopmentCaseScenario()
 export const simplifiedScenarioResults = runSimplifiedCaseScenario()
 
-if (import.meta.env.DEV) {
+if (import.meta.env?.DEV) {
   console.info('[financial-control] Development-only in-memory scenario passed.', {
     developmentScenarioResults,
     simplifiedScenarioResults,

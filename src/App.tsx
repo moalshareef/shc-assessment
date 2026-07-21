@@ -16,6 +16,7 @@ import { listCurrentOperationalAccess } from './services/platformUserAccessServi
 import type { ViewName } from './app/types'
 import type { SupabasePillar } from './types/spendingEfficiency'
 import type { CurrentOperationalAccess } from './types/platformUserAccess'
+import { buildUserIdentity } from './components/layout/userIdentityModel'
 
 function getViewFromLocation(): ViewName {
   const normalizedPath = window.location.pathname.replace(/\/+$/, '')
@@ -45,6 +46,7 @@ export default function App() {
   const [operationalAccess, setOperationalAccess] = useState<CurrentOperationalAccess[]>([])
   const [passwordRecovery, setPasswordRecovery] = useState(isPasswordRecoveryPath)
   const [recoveryVerified, setRecoveryVerified] = useState(false)
+  const [changingPassword, setChangingPassword] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -59,6 +61,7 @@ export default function App() {
       }
       if (!nextSession) {
         setSignOutLoading(false)
+        setChangingPassword(false)
       }
     })
 
@@ -199,8 +202,15 @@ export default function App() {
     return <main className="auth-page" dir="rtl"><section className="login-card"><h1>الحساب موقوف</h1><p>تم إيقاف هذا الحساب. تواصل مع مالك النظام إذا كنت تعتقد أن ذلك غير صحيح.</p><button className="primary-button" type="button" onClick={() => void handleSignOut()} disabled={signOutLoading}>{signOutLoading ? 'جاري تسجيل الخروج...' : 'العودة إلى تسجيل الدخول'}</button></section></main>
   }
 
-  if (mustChangePassword) {
-    return <PasswordChangePage onChanged={refreshProfileAccess} onSignOut={handleSignOut} />
+  if (mustChangePassword || changingPassword) {
+    return (
+      <PasswordChangePage
+        onChanged={async () => { await refreshProfileAccess(); setChangingPassword(false) }}
+        onSignOut={handleSignOut}
+        mode={mustChangePassword ? 'required' : 'voluntary'}
+        onCancel={mustChangePassword ? undefined : () => setChangingPassword(false)}
+      />
+    )
   }
 
   const isWorkspaceView = activeView === 'workspace' || activeView === 'pillars' || activeView === 'pillarDetail'
@@ -208,6 +218,7 @@ export default function App() {
   const hasOperationalAccess = allowedWorkspaceCodes.length > 0
   const hasFinancialControlAccess = allowedWorkspaceCodes.includes('financial-control')
   const hasSpendingEfficiencyAccess = allowedWorkspaceCodes.includes('spending-efficiency')
+  const identity = buildUserIdentity({ user: session.user, activeView, operationalAccess, isSystemOwner })
 
   const noOperationalAccess = (
     <section className="panel" role="status" style={{ display: 'grid', gap: 12, justifyItems: 'center', textAlign: 'center', padding: 32 }}>
@@ -225,9 +236,11 @@ export default function App() {
       isWorkspaceView={isWorkspaceView}
       onNavigate={handleNavigate}
       onSignOut={handleSignOut}
+      onChangePassword={() => setChangingPassword(true)}
       signOutLoading={signOutLoading}
       isSystemOwner={isSystemOwner}
       hasOperationalAccess={hasOperationalAccess}
+      identity={identity}
     >
       {activeView === 'platformAdmin' ? (
         <PlatformAdminPage />

@@ -9,6 +9,10 @@ import type { CaseSnapshot } from './caseManagementModel'
 
 export type SimplifiedActorType = 'employee' | 'manager' | 'viewer'
 
+export function hasManagerExperienceAccess(roles: FinancialControlRole[]) {
+  return roles.some((role) => role === 'owner' || role === 'manager')
+}
+
 export type SimplifiedPrimaryActionHandler =
   | 'record_sent_email'
   | 'record_follow_up_or_reply'
@@ -421,7 +425,7 @@ function managerModel(snapshot: CaseSnapshot): Omit<SimplifiedCaseViewModel, 'ac
 }
 
 export function buildSimplifiedCaseViewModel(input: SimplifiedCaseViewModelInput): SimplifiedCaseViewModel {
-  const canManage = input.roles.some((role) => role === 'owner' || role === 'manager')
+  const canManage = hasManagerExperienceAccess(input.roles)
   const managerPhase = areAllCorrectiveActionsSubmitted(input.snapshot.correctiveActionStatuses)
     || ['submitted_for_manager_review', 'under_manager_review', 'approved', 'closed'].includes(input.snapshot.workflowStatus)
   const returnedToAssignedEmployee = input.snapshot.workflowStatus === 'returned_for_revision'

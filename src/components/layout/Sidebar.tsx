@@ -43,13 +43,6 @@ export function Sidebar({ open, activeView, isWorkspaceView, onNavigate, isSyste
           </button>
         ) : null}
       </nav>
-      <div className="sidebar-footer">
-        <div className="user-avatar">م</div>
-        <div>
-          <strong>{isSystemOwner ? 'مالك النظام الرئيسي' : 'محمد الشريف'}</strong>
-          <span>{isSystemOwner ? 'مالك النظام' : 'مالك مساحة العمل'}</span>
-        </div>
-      </div>
     </aside>
   )
 }
